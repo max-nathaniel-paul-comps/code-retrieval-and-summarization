@@ -1,16 +1,15 @@
-from auto_encoder import AutoEncoder
-
 import json
 from os import path
-
 import gensim
 import nltk
 import numpy as np
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import tensorflow as tf
 from nltk.tokenize import word_tokenize
 
+from auto_encoder import AutoEncoder
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 nltk.download('punkt')
 
 
