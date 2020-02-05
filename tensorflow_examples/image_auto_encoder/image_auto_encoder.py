@@ -3,7 +3,11 @@ import matplotlib.pyplot as plt
 import random
 
 
-class ImageAutoEncoder(object):
+class MLPAutoEncoder(object):
+    """
+    An auto-encoder based on multilayer perceptrons
+    """
+
     def __init__(self, input_dim, code_dim):
         """
         Initialize model parameters based on input and code dimensions
@@ -97,7 +101,7 @@ def main():
 
     # We're gonna make our hidden code be only 16 in length (compared to 784 in the input!)
     hidden_code_dim = 16
-    model = ImageAutoEncoder(input_dim, hidden_code_dim)
+    model = MLPAutoEncoder(input_dim, hidden_code_dim)
     model.train(x_train, x_test, 64, 1024, tf.keras.optimizers.Adam())
 
     for _ in range(4):
