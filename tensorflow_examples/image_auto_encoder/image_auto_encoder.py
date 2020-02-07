@@ -104,7 +104,7 @@ def main():
     model = MLPAutoEncoder(input_dim, hidden_code_dim)
     model.train(x_train, x_test, 64, 1024, tf.keras.optimizers.Adam())
 
-    for _ in range(4):
+    for _ in range(10):
         plt.subplot(1, 3, 1)
         plt.title("Input Image")
         test_case = x_test[random.randrange(x_test.shape[0])]

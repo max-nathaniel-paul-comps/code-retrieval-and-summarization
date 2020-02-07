@@ -1,14 +1,9 @@
 import json
 from os import path
 import gensim
-import nltk
 import numpy as np
-import os
 import tensorflow as tf
 from nltk.tokenize import word_tokenize
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-nltk.download('punkt')
 
 
 def texts_to_tensors(wv, texts):
@@ -67,11 +62,11 @@ def main():
     training_tensors = texts_to_tensors(wv, training)
 
     model = tf.keras.Sequential([
-        tf.keras.layers.LSTM(128, activation='relu',
-                             input_shape=(training_tensors.shape[1], training_tensors.shape[2])),
+        tf.keras.layers.LSTM(512, input_shape=(training_tensors.shape[1], training_tensors.shape[2]), return_sequences=True),
+        tf.keras.layers.LSTM(256, return_sequences=False),
         tf.keras.layers.RepeatVector(training_tensors.shape[1]),
-        tf.keras.layers.LSTM(128, activation='relu', return_sequences=True),
-        tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(training_tensors.shape[2]))
+        tf.keras.layers.LSTM(512, return_sequences=True),
+        tf.keras.layers.LSTM(training_tensors.shape[2], return_sequences=True)
     ])
 
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001), loss='mse')
