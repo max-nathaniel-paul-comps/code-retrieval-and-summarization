@@ -42,12 +42,8 @@ class MLPVariationalAutoEncoder(object):
                                             + self._params["enc_b2"])
         code_dim = int(encoded_distribution.shape[1] / 2)
         mean = encoded_distribution[:, :code_dim]
-        stddev = tf.abs(encoded_distribution[:, code_dim:])
-        return mean, stddev
-
-    def sample_encoding(self, mean, stddev):
-        assert mean.shape == stddev.shape
-        return tf.random.normal((mean.shape[0], mean.shape[1]), mean=mean, stddev=stddev)
+        stddev = encoded_distribution[:, code_dim:] ** 2
+        return tfp.distributions.Normal(mean, stddev)
 
     def decode(self, sampled_encoding):
         hidden_layer_1 = tf.nn.leaky_relu(tf.matmul(self._params["dec_W0"], sampled_encoding, transpose_b=True)
@@ -59,13 +55,14 @@ class MLPVariationalAutoEncoder(object):
         return decoded
 
     def loss(self, inputs):
-        mean, stddev = self.encode(inputs)
-        kl_divergence = tf.losses.kullback_leibler_divergence(tfp.distributions.Normal(0.0, 1.0),
-                                                              tfp.distributions.Normal(mean, stddev))
-        encoded = self.sample_encoding(mean, stddev)
-        decoded = self.decode(encoded)
+        encoded = self.encode(inputs)
+        kl_divergences = tfp.distributions.kl_divergence(encoded,
+                                                         tfp.distributions.Normal(0.0, 1.0))
+        kl_divergence = tf.reduce_mean(tf.reduce_mean(kl_divergences, axis=1))
+        sample_encoded = encoded.sample()
+        decoded = self.decode(sample_encoded)
         mean_square_error = tf.reduce_mean(tf.losses.mean_squared_error(inputs, decoded))
-        return (3 * mean_square_error + kl_divergence) / 4
+        return mean_square_error + 0.01 * kl_divergence
 
     def _training_step(self, inputs, optimizer):
         with tf.GradientTape() as t:
@@ -82,9 +79,6 @@ class MLPVariationalAutoEncoder(object):
             val_loss = self.loss(val_inputs)
             print("Epoch {} of {} completed, training loss = {}, validation loss = {}".format(
                 epoch_num, num_epochs, train_loss, val_loss))
-            if epoch_num > 15 and val_loss - train_loss > train_loss / 32:
-                print("Stopped because validation loss significantly exceeds training loss")
-                break
 
 
 def main():
@@ -109,7 +103,7 @@ def main():
 
     hidden_code_dim = 36
     model = MLPVariationalAutoEncoder(input_dim, hidden_code_dim)
-    model.train(x_train, x_test, 32, 1024, tf.keras.optimizers.Adam())
+    model.train(x_train, x_test, 30, 1024, tf.keras.optimizers.Adam(learning_rate=0.0001))
 
     for _ in range(5):
         plt.subplot(1, 3, 1)
@@ -120,8 +114,8 @@ def main():
 
         plt.subplot(1, 3, 2)
         plt.title("Hidden Representation")
-        mean, stddev = model.encode([test_case])
-        encoded = model.sample_encoding(mean, stddev)
+        encoded_dist = model.encode([test_case])
+        encoded = encoded_dist.sample()
         # The reshape command makes the 16-long hidden code by 4x4
         # so we can see it alongside the input and output
         encoded_img = tf.reshape(tf.nn.sigmoid(encoded), (1, 6, 6))[0] * 255.0
