@@ -56,13 +56,12 @@ class MLPVariationalAutoEncoder(object):
 
     def loss(self, inputs):
         encoded = self.encode(inputs)
-        kl_divergences = tfp.distributions.kl_divergence(encoded,
-                                                         tfp.distributions.Normal(0.0, 1.0))
-        kl_divergence = tf.reduce_mean(tf.reduce_mean(kl_divergences, axis=1))
         sample_encoded = encoded.sample()
+        kl_divergence = tf.reduce_mean(tf.losses.kullback_leibler_divergence(sample_encoded,
+                                                                             tf.random.normal(sample_encoded.shape)))
         decoded = self.decode(sample_encoded)
         mean_square_error = tf.reduce_mean(tf.losses.mean_squared_error(inputs, decoded))
-        return mean_square_error + 0.01 * kl_divergence
+        return mean_square_error + kl_divergence
 
     def _training_step(self, inputs, optimizer):
         with tf.GradientTape() as t:
@@ -103,9 +102,9 @@ def main():
 
     hidden_code_dim = 36
     model = MLPVariationalAutoEncoder(input_dim, hidden_code_dim)
-    model.train(x_train, x_test, 30, 1024, tf.keras.optimizers.Adam(learning_rate=0.0001))
+    model.train(x_train, x_test, 60, 1024, tf.keras.optimizers.Adam(learning_rate=0.0001))
 
-    for _ in range(5):
+    for _ in range(10):
         plt.subplot(1, 3, 1)
         plt.title("Input Image")
         test_case = x_test[random.randrange(x_test.shape[0])]
