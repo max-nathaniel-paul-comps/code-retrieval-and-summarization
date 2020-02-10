@@ -56,15 +56,14 @@ class MLPVariationalAutoEncoder(object):
 
     def loss(self, inputs):
         encoded = self.encode(inputs)
-        kl_divergence = 0
-        for i in range(encoded.batch_shape[1]):
-            dist = encoded[:, i]
-            kl_divergence += tf.reduce_mean(tfp.distributions.kl_divergence(
-                dist,
-                tfp.distributions.Normal(0.0, 1.0)
-            ))
-
         sample_encoded = encoded.sample()
+        emp_dist = tfp.distributions.Empirical(tf.transpose(sample_encoded))
+        kl_divergence = tf.reduce_sum(
+            tfp.distributions.kl_divergence(
+                tfp.distributions.Normal(emp_dist.mean(), emp_dist.stddev()),
+                tfp.distributions.Normal(0.0, 1.0)
+            )
+        )
         decoded = self.decode(sample_encoded)
         mean_square_error = tf.reduce_mean(tf.losses.mean_squared_error(inputs, decoded))
         return mean_square_error + kl_divergence
@@ -108,7 +107,7 @@ def main():
 
     hidden_code_dim = 36
     model = MLPVariationalAutoEncoder(input_dim, hidden_code_dim)
-    model.train(x_train, x_test, 65, 1024, tf.keras.optimizers.Adam(learning_rate=0.001))
+    model.train(x_train, x_test, 65, 512, tf.keras.optimizers.Adam(learning_rate=0.0001))
 
     for _ in range(10):
         plt.subplot(1, 3, 1)
