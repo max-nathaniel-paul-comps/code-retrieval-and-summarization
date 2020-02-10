@@ -1,93 +1,61 @@
+import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
 import random
 import matplotlib.pyplot as plt
 
 
-class MLPVariationalAutoEncoder(object):
-    """
-    A variational auto-encoder based on multilayer perceptrons
-    """
-    def __init__(self, input_dim, code_dim):
-        """
-        Initialize model parameters based on input and code dimensions
-        This function is exactly the same as the regular auto-encoder
-        *except* that the final step of the encoder generates a mean and stddev instead of single values
-        So the dimensionality of the final step of the encoder is multiplied by 2
-        """
-        assert code_dim < input_dim
-        hidden_1_dim = int(input_dim - (input_dim - code_dim) / 4)
-        hidden_2_dim = int(input_dim - 3 * (input_dim - code_dim) / 4)
-        self._params = {
-            "enc_W0": tf.Variable(tf.random.normal((hidden_1_dim, input_dim), mean=0.0, stddev=0.05)),
-            "enc_b0": tf.Variable(tf.zeros((hidden_1_dim, 1))),
-            "enc_W1": tf.Variable(tf.random.normal((hidden_2_dim, hidden_1_dim), mean=0.0, stddev=0.05)),
-            "enc_b1": tf.Variable(tf.zeros((hidden_2_dim, 1))),
-            "enc_W2": tf.Variable(tf.random.normal((code_dim * 2, hidden_2_dim), mean=0.0, stddev=0.05)),
-            "enc_b2": tf.Variable(tf.zeros((code_dim * 2, 1))),
-            "dec_W0": tf.Variable(tf.random.normal((hidden_2_dim, code_dim), mean=0.0, stddev=0.05)),
-            "dec_b0": tf.Variable(tf.zeros((hidden_2_dim, 1))),
-            "dec_W1": tf.Variable(tf.random.normal((hidden_1_dim, hidden_2_dim), mean=0.0, stddev=0.05)),
-            "dec_b1": tf.Variable(tf.zeros((hidden_1_dim, 1))),
-            "dec_W2": tf.Variable(tf.random.normal((input_dim, hidden_1_dim), mean=0.0, stddev=0.05)),
-            "dec_b2": tf.Variable(tf.zeros((input_dim, 1))),
-        }
+class MultiLayerPerceptron(tf.keras.layers.Layer):
+    def __init__(self, from_dim, to_dim, hidden_layer_dims, name='multi_layer_perceptron', **kwargs):
+        super(MultiLayerPerceptron, self).__init__(name=name, **kwargs)
+        self._layers = list()
+        prev_dim = from_dim
+        for hidden_layer_dim in hidden_layer_dims:
+            self._layers.append(tf.keras.layers.Dense(hidden_layer_dim, activation='relu', input_dim=prev_dim))
+            prev_dim = hidden_layer_dim
+        self._layers.append(tf.keras.layers.Dense(to_dim, input_dim=prev_dim))
+
+    def call(self, inputs, **kwargs):
+        x = inputs
+        for layer in self._layers:
+            x = layer(x)
+        return x
+
+
+class MLPVariationalAutoEncoder(tf.keras.models.Model):
+    def __init__(self, input_dim, latent_dim, hidden_layer_dims: list, name='variational_auto_encoder', **kwargs):
+        super(MLPVariationalAutoEncoder, self).__init__(name=name, **kwargs)
+        self._input_dim = input_dim
+        self._latent_dim = latent_dim
+        self._encoder = MultiLayerPerceptron(input_dim, latent_dim * 2, hidden_layer_dims, name='encoder')
+        self._decoder = MultiLayerPerceptron(latent_dim, input_dim, reversed(hidden_layer_dims), name='decoder')
 
     def encode(self, inputs):
-        hidden_layer_1 = tf.nn.leaky_relu(tf.matmul(self._params["enc_W0"], inputs, transpose_b=True)
-                                          + self._params["enc_b0"])
-        hidden_layer_2 = tf.nn.leaky_relu(tf.matmul(self._params["enc_W1"], hidden_layer_1)
-                                          + self._params["enc_b1"])
-        encoded_distribution = tf.transpose(tf.matmul(self._params["enc_W2"], hidden_layer_2)
-                                            + self._params["enc_b2"])
-        code_dim = int(encoded_distribution.shape[1] / 2)
-        mean = encoded_distribution[:, :code_dim]
-        stddev = encoded_distribution[:, code_dim:] ** 2
-        return tfp.distributions.Normal(mean, stddev)
+        latent_dist_raw = self._encoder(inputs)
+        latent_dist = tfp.distributions.Normal(latent_dist_raw[:, :self._latent_dim],
+                                               latent_dist_raw[:, self._latent_dim:])
+        return latent_dist
 
-    def decode(self, sampled_encoding):
-        hidden_layer_1 = tf.nn.leaky_relu(tf.matmul(self._params["dec_W0"], sampled_encoding, transpose_b=True)
-                                          + self._params["dec_b0"])
-        hidden_layer_2 = tf.nn.leaky_relu(tf.matmul(self._params["dec_W1"], hidden_layer_1)
-                                          + self._params["dec_b1"])
-        decoded = tf.transpose(tf.nn.sigmoid(tf.matmul(self._params["dec_W2"], hidden_layer_2)
-                                             + self._params["dec_b2"]))
-        return decoded
+    def decode(self, latent):
+        return self._decoder(latent)
 
-    def loss(self, inputs):
-        encoded = self.encode(inputs)
-        sample_encoded = encoded.sample()
-        emp_dist = tfp.distributions.Empirical(tf.transpose(sample_encoded))
+    def call(self, inputs, training=None, mask=None):
+        latent_dist = self.encode(inputs)
+        latent = latent_dist.sample()
+        emp_dist = tfp.distributions.Empirical(tf.transpose(latent))
         kl_divergence = tf.reduce_sum(
             tfp.distributions.kl_divergence(
                 tfp.distributions.Normal(emp_dist.mean(), emp_dist.stddev()),
                 tfp.distributions.Normal(0.0, 1.0)
             )
         )
-        decoded = self.decode(sample_encoded)
-        mean_square_error = tf.reduce_mean(tf.losses.mean_squared_error(inputs, decoded))
-        return mean_square_error + kl_divergence
+        self.add_loss(kl_divergence)
 
-    def _training_step(self, inputs, optimizer):
-        with tf.GradientTape() as t:
-            current_loss = self.loss(inputs)
-        grads = t.gradient(current_loss, self._params)
-        optimizer.apply_gradients((grads[key], self._params[key]) for key in grads.keys())
-
-    def train(self, inputs, val_inputs, num_epochs, batch_size, optimizer):
-        for epoch_num in range(1, num_epochs + 1):
-            for batch_num in range(int(inputs.shape[0] / batch_size)):
-                inputs_batch = inputs[batch_num * batch_size: batch_num * batch_size + batch_size]
-                self._training_step(inputs_batch, optimizer)
-            train_loss = self.loss(inputs)
-            val_loss = self.loss(val_inputs)
-            print("Epoch {} of {} completed, training loss = {}, validation loss = {}".format(
-                epoch_num, num_epochs, train_loss, val_loss))
+        decoded = self.decode(latent)
+        return decoded
 
 
 def main():
-    assert tf.version.VERSION >= "2.0.0", "TensorFlow 2.0.0 or newer required, %s installed" % tf.version.VERSION
-
     (x_train, _), (x_test, _) = tf.keras.datasets.mnist.load_data()
 
     x_train = x_train.astype('float32') / 255.0
@@ -102,14 +70,16 @@ def main():
     print("\nInput dimension: {}x{}\n".format(input_x_dim, input_y_dim))
 
     input_dim = input_x_dim * input_y_dim
-    x_train = tf.reshape(x_train, (len(x_train), input_dim))
-    x_test = tf.reshape(x_test, (len(x_test), input_dim))
+    x_train = np.reshape(x_train, (len(x_train), input_dim))
+    x_test = np.reshape(x_test, (len(x_test), input_dim))
 
-    hidden_code_dim = 36
-    model = MLPVariationalAutoEncoder(input_dim, hidden_code_dim)
-    model.train(x_train, x_test, 65, 512, tf.keras.optimizers.Adam(learning_rate=0.0001))
+    hidden_code_dim = 16
+    model = MLPVariationalAutoEncoder(input_dim, hidden_code_dim, [512, 128])
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001), loss=tf.keras.losses.mean_squared_error)
 
-    for _ in range(10):
+    model.fit(x_train, x_train, batch_size=1024, epochs=50, verbose=1, validation_split=0.15, shuffle=True)
+
+    for _ in range(4):
         plt.subplot(1, 3, 1)
         plt.title("Input Image")
         test_case = x_test[random.randrange(x_test.shape[0])]
@@ -118,16 +88,16 @@ def main():
 
         plt.subplot(1, 3, 2)
         plt.title("Hidden Representation")
-        encoded_dist = model.encode([test_case])
+        encoded_dist = model.encode(np.array([test_case]))
         encoded = encoded_dist.sample()
         # The reshape command makes the 16-long hidden code by 4x4
         # so we can see it alongside the input and output
-        encoded_img = tf.reshape(tf.nn.sigmoid(encoded), (1, 6, 6))[0] * 255.0
+        encoded_img = tf.reshape(tf.nn.sigmoid(encoded), (1, 4, 4))[0] * 255.0
         plt.imshow(encoded_img, cmap='Greys')
 
         plt.subplot(1, 3, 3)
         plt.title("Output Image")
-        decoded = model.decode([encoded])
+        decoded = model.decode(np.array([encoded]))
         decoded_img = tf.reshape(decoded, (1, input_x_dim, input_y_dim))[0] * 255.0
         plt.imshow(decoded_img, cmap='Greys')
 
