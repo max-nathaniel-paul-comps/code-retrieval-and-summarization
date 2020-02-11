@@ -6,14 +6,15 @@ import matplotlib.pyplot as plt
 
 
 class MultiLayerPerceptron(tf.keras.layers.Layer):
-    def __init__(self, from_dim, to_dim, hidden_layer_dims, name='multi_layer_perceptron', **kwargs):
+    def __init__(self, from_dim, to_dim, hidden_layer_dims, final_activation, name='multi_layer_perceptron', **kwargs):
         super(MultiLayerPerceptron, self).__init__(name=name, **kwargs)
         self._layers = list()
         prev_dim = from_dim
         for hidden_layer_dim in hidden_layer_dims:
-            self._layers.append(tf.keras.layers.Dense(hidden_layer_dim, activation='relu', input_dim=prev_dim))
+            self._layers.append(tf.keras.layers.Dense(hidden_layer_dim, activation=None, input_dim=prev_dim))
+            self._layers.append(tf.keras.layers.LeakyReLU())
             prev_dim = hidden_layer_dim
-        self._layers.append(tf.keras.layers.Dense(to_dim, input_dim=prev_dim))
+        self._layers.append(tf.keras.layers.Dense(to_dim, input_dim=prev_dim, activation=final_activation))
 
     def call(self, inputs, **kwargs):
         x = inputs
@@ -27,8 +28,9 @@ class MLPVariationalAutoEncoder(tf.keras.models.Model):
         super(MLPVariationalAutoEncoder, self).__init__(name=name, **kwargs)
         self._input_dim = input_dim
         self._latent_dim = latent_dim
-        self._encoder = MultiLayerPerceptron(input_dim, latent_dim * 2, hidden_layer_dims, name='encoder')
-        self._decoder = MultiLayerPerceptron(latent_dim, input_dim, reversed(hidden_layer_dims), name='decoder')
+        self._encoder = MultiLayerPerceptron(input_dim, latent_dim * 2, hidden_layer_dims, None, name='encoder')
+        self._decoder = MultiLayerPerceptron(latent_dim, input_dim, reversed(hidden_layer_dims), 'sigmoid',
+                                             name='decoder')
 
     def encode(self, inputs):
         latent_dist_raw = self._encoder(inputs)
@@ -43,7 +45,7 @@ class MLPVariationalAutoEncoder(tf.keras.models.Model):
         latent_dist = self.encode(inputs)
         latent = latent_dist.sample()
         emp_dist = tfp.distributions.Empirical(tf.transpose(latent))
-        kl_divergence = tf.reduce_sum(
+        kl_divergence = tf.reduce_mean(
             tfp.distributions.kl_divergence(
                 tfp.distributions.Normal(emp_dist.mean(), emp_dist.stddev()),
                 tfp.distributions.Normal(0.0, 1.0)
@@ -77,7 +79,7 @@ def main():
     model = MLPVariationalAutoEncoder(input_dim, hidden_code_dim, [512, 128])
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001), loss=tf.keras.losses.mean_squared_error)
 
-    model.fit(x_train, x_train, batch_size=1024, epochs=50, verbose=1, validation_split=0.15, shuffle=True)
+    model.fit(x_train, x_train, batch_size=512, epochs=25, verbose=1, validation_data=(x_test, x_test), shuffle=True)
 
     for _ in range(4):
         plt.subplot(1, 3, 1)
