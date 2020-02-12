@@ -24,12 +24,13 @@ class MultiLayerPerceptron(tf.keras.layers.Layer):
 
 
 class MLPVariationalAutoEncoder(tf.keras.models.Model):
-    def __init__(self, input_dim, latent_dim, hidden_layer_dims: list, name='variational_auto_encoder', **kwargs):
+    def __init__(self, input_dim, latent_dim, hidden_layer_dims: list, final_activation='sigmoid',
+                 name='variational_auto_encoder', **kwargs):
         super(MLPVariationalAutoEncoder, self).__init__(name=name, **kwargs)
         self._input_dim = input_dim
         self._latent_dim = latent_dim
         self._encoder = MultiLayerPerceptron(input_dim, latent_dim * 2, hidden_layer_dims, None, name='encoder')
-        self._decoder = MultiLayerPerceptron(latent_dim, input_dim, reversed(hidden_layer_dims), 'sigmoid',
+        self._decoder = MultiLayerPerceptron(latent_dim, input_dim, reversed(hidden_layer_dims), final_activation,
                                              name='decoder')
 
     def encode(self, inputs):
