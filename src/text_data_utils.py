@@ -13,7 +13,7 @@ def tokenize_texts(texts: list) -> list:
 
 def tokenized_texts_to_tensor(tokenized: list, wv: gensim.models.KeyedVectors, max_len: int) -> np.ndarray:
     assert max_len >= max(len(text) for text in tokenized)
-    tensor = np.zeros((len(tokenized), max_len, wv.vector_size))
+    tensor = np.zeros((len(tokenized), max_len, wv.vector_size), dtype=np.float32)
     for i in range(len(tokenized)):
         for j in range(len(tokenized[i])):
             if tokenized[i][j] in wv:
