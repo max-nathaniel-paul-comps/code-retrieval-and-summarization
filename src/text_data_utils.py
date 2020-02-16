@@ -1,6 +1,21 @@
 import re
 import numpy as np
 import gensim
+from typing import Tuple
+
+
+def load_iyer_file(filename: str, max_len: int = 40) -> Tuple[list, list]:
+    file_contents = open(filename).readlines()
+    summaries = []
+    codes = []
+    for line in file_contents:
+        items = line.split('\t')
+        if len(items) == 5:
+            split_line = line.split('\t')
+            if len(split_line[2]) <= max_len and len(split_line[3]) <= max_len:
+                summaries.append(split_line[2])
+                codes.append(split_line[3])
+    return summaries, codes
 
 
 def tokenize_texts(texts: list) -> list:
