@@ -59,8 +59,8 @@ class BimodalVariationalAutoEncoder(tf.Module):
         enc_source_code = enc_source_code_dists.sample()
         dec_language = self.language_decoder(enc_language)
         dec_source_code = self.source_code_decoder(enc_source_code)
-        language_mse = tf.reduce_mean(tf.reduce_sum(tf.math.squared_difference(language_batch, dec_language), axis=1))
-        source_code_mse = tf.reduce_mean(tf.reduce_sum(tf.math.squared_difference(source_code_batch, dec_source_code), axis=1))
+        language_mse = tf.reduce_mean(tf.reduce_mean(tf.math.squared_difference(language_batch, dec_language), axis=1))
+        source_code_mse = tf.reduce_mean(tf.reduce_mean(tf.math.squared_difference(source_code_batch, dec_source_code), axis=1))
         return language_kl_divergence + source_code_kl_divergence + language_mse + source_code_mse
 
     def training_step(self, language_batch, source_code_batch, optimizer):
@@ -90,15 +90,12 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
 
 def main():
-    train_summaries, train_codes = load_iyer_file("../data/iyer/train.txt")
-    train_summaries_tokens = tokenize_texts(train_summaries)
-    max_summary_len = max(len(text) for text in train_summaries_tokens)
-    train_codes_tokens = tokenize_texts(train_codes)
-    max_code_len = max(len(text) for text in train_codes_tokens)
-    summaries_wv = gensim.models.Word2Vec(train_summaries_tokens, size=110).wv
-    codes_wv = gensim.models.Word2Vec(train_codes_tokens, size=125).wv
-    train_summaries_tensor = tokenized_texts_to_tensor(train_summaries_tokens, summaries_wv, max_summary_len)
-    train_codes_tensor = tokenized_texts_to_tensor(train_codes_tokens, codes_wv, max_code_len)
+    max_len = 40
+    train_summaries, train_codes = load_iyer_file("../data/iyer/train.txt", max_len=max_len)
+    summaries_wv = gensim.models.Word2Vec(train_summaries, size=80, min_count=5).wv
+    codes_wv = gensim.models.Word2Vec(train_codes, size=80, min_count=5).wv
+    train_summaries_tensor = tokenized_texts_to_tensor(train_summaries, summaries_wv, max_len)
+    train_codes_tensor = tokenized_texts_to_tensor(train_codes, codes_wv, max_len)
     train_summaries_tensor_fl = np.reshape(train_summaries_tensor,
                                            (train_summaries_tensor.shape[0],
                                             train_summaries_tensor.shape[1] * train_summaries_tensor.shape[2]))
@@ -106,11 +103,9 @@ def main():
                                        (train_codes_tensor.shape[0],
                                         train_codes_tensor.shape[1] * train_codes_tensor.shape[2]))
 
-    val_summaries, val_codes = load_iyer_file("../data/iyer/valid.txt")
-    val_summaries_tokens = tokenize_texts(val_summaries)
-    val_codes_tokens = tokenize_texts(val_codes)
-    val_summaries_tensor = tokenized_texts_to_tensor(val_summaries_tokens, summaries_wv, max_summary_len)
-    val_codes_tensor = tokenized_texts_to_tensor(val_codes_tokens, codes_wv, max_code_len)
+    val_summaries, val_codes = load_iyer_file("../data/iyer/valid.txt", max_len=max_len)
+    val_summaries_tensor = tokenized_texts_to_tensor(val_summaries, summaries_wv, max_len)
+    val_codes_tensor = tokenized_texts_to_tensor(val_codes, codes_wv, max_len)
     val_summaries_tensor_fl = np.reshape(val_summaries_tensor,
                                          (val_summaries_tensor.shape[0],
                                           val_summaries_tensor.shape[1] * val_summaries_tensor.shape[2]))
@@ -118,11 +113,9 @@ def main():
                                      (val_codes_tensor.shape[0],
                                       val_codes_tensor.shape[1] * val_codes_tensor.shape[2]))
 
-    test_summaries, test_codes = load_iyer_file("../data/iyer/test.txt")
-    test_summaries_tokens = tokenize_texts(test_summaries)
-    test_codes_tokens = tokenize_texts(test_codes)
-    test_summaries_tensor = tokenized_texts_to_tensor(test_summaries_tokens, summaries_wv, max_summary_len)
-    test_codes_tensor = tokenized_texts_to_tensor(test_codes_tokens, codes_wv, max_code_len)
+    test_summaries, test_codes = load_iyer_file("../data/iyer/test.txt", max_len=max_len)
+    test_summaries_tensor = tokenized_texts_to_tensor(test_summaries, summaries_wv, max_len)
+    test_codes_tensor = tokenized_texts_to_tensor(test_codes, codes_wv, max_len)
     test_summaries_tensor_fl = np.reshape(test_summaries_tensor,
                                           (test_summaries_tensor.shape[0],
                                            test_summaries_tensor.shape[1] * test_summaries_tensor.shape[2]))
@@ -130,13 +123,13 @@ def main():
                                       (test_codes_tensor.shape[0],
                                        test_codes_tensor.shape[1] * test_codes_tensor.shape[2]))
 
-    latent_dim = 768
+    latent_dim = 512
 
     model = BimodalVariationalAutoEncoder(train_summaries_tensor_fl.shape[1],
                                           train_codes_tensor_fl.shape[1],
                                           latent_dim)
 
-    model.train(train_summaries_tensor_fl, train_codes_tensor_fl, val_summaries_tensor_fl, val_codes_tensor_fl, 50, 128,
+    model.train(train_summaries_tensor_fl, train_codes_tensor_fl, val_summaries_tensor_fl, val_codes_tensor_fl, 12, 128,
                 tf.keras.optimizers.Adam(learning_rate=0.0001))
 
     random.seed()

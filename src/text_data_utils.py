@@ -1,10 +1,15 @@
 import re
 import numpy as np
 import gensim
-from typing import Tuple
+from typing import Tuple, List
 
 
-def load_iyer_file(filename: str, max_len: int = 40) -> Tuple[list, list]:
+def tokenize_text(text: str) -> List[str]:
+    words_re = re.compile(r'(\w+|[,./?<>!@#$%^&*()_\-+=`~{}|\[\]\\:;\'"])')
+    return ['<s>'] + words_re.findall(text) + ['</s>']
+
+
+def load_iyer_file(filename: str, max_len: int = 0) -> Tuple[List[List[str]], List[List[str]]]:
     file_contents = open(filename).readlines()
     summaries = []
     codes = []
@@ -12,33 +17,32 @@ def load_iyer_file(filename: str, max_len: int = 40) -> Tuple[list, list]:
         items = line.split('\t')
         if len(items) == 5:
             split_line = line.split('\t')
-            if len(split_line[2]) <= max_len and len(split_line[3]) <= max_len:
-                summaries.append(split_line[2])
-                codes.append(split_line[3])
+            summary = tokenize_text(split_line[2].lower())
+            code = tokenize_text(split_line[3])
+            if max_len == 0 or (len(summary) < max_len and len(code) < max_len):
+                summaries.append(summary)
+                codes.append(code)
     return summaries, codes
 
 
-def tokenize_texts(texts: list) -> list:
-    words_re = re.compile(r'(\w+|[,./?<>!@#$%^&*()_\-+=`~{}|\[\]\\:;\'"])')
+def tokenize_texts(texts: List[str]) -> List[List[str]]:
     tokenized = []
     for text in texts:
-        tokenized.append(['<s>'] + words_re.findall(text) + ['</s>'])
+        tokenized.append(tokenize_text(text))
     return tokenized
 
 
-def tokenized_texts_to_tensor(tokenized: list, wv: gensim.models.KeyedVectors, max_len: int) -> np.ndarray:
+def tokenized_texts_to_tensor(tokenized: List[List[str]], wv: gensim.models.KeyedVectors, max_len: int) -> np.ndarray:
     assert max_len >= max(len(text) for text in tokenized)
     tensor = np.zeros((len(tokenized), max_len, wv.vector_size), dtype=np.float32)
     for i in range(len(tokenized)):
         for j in range(len(tokenized[i])):
             if tokenized[i][j] in wv:
                 tensor[i][j] = wv[tokenized[i][j]]
-            else:
-                tensor[i][j] = np.zeros((wv.vector_size,))
-    return tensor
+    return np.array(tensor)
 
 
-def tensor_to_tokenized_texts(tensor: np.ndarray, wv: gensim.models.KeyedVectors) -> list:
+def tensor_to_tokenized_texts(tensor: np.ndarray, wv: gensim.models.KeyedVectors) -> List[List[str]]:
     texts = []
     for tokens_tensor in tensor:
         text = []
