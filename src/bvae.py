@@ -18,7 +18,7 @@ class VariationalEncoder(MultiLayerPerceptron):
     def __call__(self, x):
         dist = super(VariationalEncoder, self).__call__(x)
         mean = dist[:, :self.latent_dim]
-        stddev = dist[:, self.latent_dim:]
+        stddev = tf.math.abs(dist[:, self.latent_dim:])
         return tfp.distributions.Normal(mean, stddev)
 
 
@@ -40,24 +40,23 @@ class BimodalVariationalAutoEncoder(tf.Module):
     def loss(self, language_batch, source_code_batch):
         enc_language_dists = self.language_encoder(language_batch)
         enc_source_code_dists = self.source_code_encoder(source_code_batch)
-        enc_language = enc_language_dists.sample()
-        enc_source_code = enc_source_code_dists.sample()
-        enc_language_emp_dist = tfp.distributions.Empirical(enc_language, event_ndims=1)
-        enc_source_code_emp_dist = tfp.distributions.Empirical(enc_source_code, event_ndims=1)
-        mean_mean = (enc_language_emp_dist.mean() + enc_source_code_emp_dist.mean()) / 2
-        mean_stddev = (enc_language_emp_dist.stddev() + enc_source_code_emp_dist.stddev()) / 2
+        mean_mean = (enc_language_dists.mean() + enc_source_code_dists.mean()) / 2
+        mean_stddev = (enc_language_dists.stddev() + enc_source_code_dists.stddev()) / 2
         language_kl_divergence = tf.reduce_mean(
             tfp.distributions.kl_divergence(
-                tfp.distributions.Normal(enc_language_emp_dist.mean(), enc_language_emp_dist.stddev()),
+                enc_language_dists,
                 tfp.distributions.Normal(mean_mean, mean_stddev)
             )
         )
         source_code_kl_divergence = tf.reduce_mean(
             tfp.distributions.kl_divergence(
-                tfp.distributions.Normal(enc_source_code_emp_dist.mean(), enc_source_code_emp_dist.stddev()),
+                enc_source_code_dists,
                 tfp.distributions.Normal(mean_mean, mean_stddev)
             )
         )
+
+        enc_language = enc_language_dists.sample()
+        enc_source_code = enc_source_code_dists.sample()
         dec_language = self.language_decoder(enc_language)
         dec_source_code = self.source_code_decoder(enc_source_code)
         language_mse = tf.reduce_mean(tf.reduce_sum(tf.math.squared_difference(language_batch, dec_language), axis=1))
@@ -131,13 +130,13 @@ def main():
                                       (test_codes_tensor.shape[0],
                                        test_codes_tensor.shape[1] * test_codes_tensor.shape[2]))
 
-    latent_dim = 512
+    latent_dim = 768
 
     model = BimodalVariationalAutoEncoder(train_summaries_tensor_fl.shape[1],
                                           train_codes_tensor_fl.shape[1],
                                           latent_dim)
 
-    model.train(train_summaries_tensor_fl, train_codes_tensor_fl, val_summaries_tensor_fl, val_codes_tensor_fl, 20, 128,
+    model.train(train_summaries_tensor_fl, train_codes_tensor_fl, val_summaries_tensor_fl, val_codes_tensor_fl, 50, 128,
                 tf.keras.optimizers.Adam(learning_rate=0.0001))
 
     random.seed()
