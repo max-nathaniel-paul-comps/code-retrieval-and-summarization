@@ -1,31 +1,8 @@
-import tensorflow as tf
-import tensorflow_probability as tfp
 import gensim
 import random
 import matplotlib.pyplot as plt
-from mlp import *
+from vae import *
 from text_data_utils import *
-
-
-class VariationalEncoder(MultiLayerPerceptron):
-    def __init__(self, input_dim, latent_dim, name='variational_encoder'):
-        hidden_1_dim = int(input_dim - (input_dim - latent_dim) / 2)
-        hidden_2_dim = int(hidden_1_dim - (hidden_1_dim - latent_dim) / 2)
-        super(VariationalEncoder, self).__init__(input_dim, 2 * latent_dim, [hidden_1_dim, hidden_2_dim], name=name)
-        self.latent_dim = latent_dim
-
-    def __call__(self, x):
-        dist = super(VariationalEncoder, self).__call__(x)
-        mean = dist[:, :self.latent_dim]
-        stddev = tf.math.abs(dist[:, self.latent_dim:])
-        return tfp.distributions.Normal(mean, stddev)
-
-
-class Decoder(MultiLayerPerceptron):
-    def __init__(self, latent_dim, reconstructed_dim, name='decoder'):
-        hidden_1_dim = int(reconstructed_dim - (reconstructed_dim - latent_dim) / 2)
-        hidden_2_dim = int(hidden_1_dim - (hidden_1_dim - latent_dim) / 2)
-        super(Decoder, self).__init__(latent_dim, reconstructed_dim, [hidden_2_dim, hidden_1_dim], name=name)
 
 
 class BimodalVariationalAutoEncoder(tf.Module):
@@ -96,7 +73,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
 
 def main():
-    max_len = 55
+    max_len = 39
     train_summaries, train_codes = load_iyer_file("../data/iyer/train.txt", max_len=max_len)
     summaries_wv = gensim.models.Word2Vec(train_summaries, size=100, min_count=5).wv
     codes_wv = gensim.models.Word2Vec(train_codes, size=100, min_count=5).wv
