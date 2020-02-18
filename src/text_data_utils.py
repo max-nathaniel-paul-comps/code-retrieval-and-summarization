@@ -5,7 +5,7 @@ from typing import Tuple, List
 
 
 def tokenize_text(text: str) -> List[str]:
-    words_re = re.compile(r'(\w+|[,./?<>!@#$%^&*()_\-+=`~{}|\[\]\\:;\'"])')
+    words_re = re.compile(r'(\w+|[^\w])')
     return ['<s>'] + words_re.findall(text) + ['</s>']
 
 

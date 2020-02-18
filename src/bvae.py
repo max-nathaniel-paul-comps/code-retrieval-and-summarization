@@ -3,15 +3,14 @@ import tensorflow_probability as tfp
 import gensim
 import random
 import matplotlib.pyplot as plt
-from typing import Union
 from mlp import *
 from text_data_utils import *
 
 
 class VariationalEncoder(MultiLayerPerceptron):
     def __init__(self, input_dim, latent_dim, name='variational_encoder'):
-        hidden_1_dim = int(input_dim - (input_dim - latent_dim) / 4)
-        hidden_2_dim = int(input_dim - 3 * (input_dim - latent_dim) / 4)
+        hidden_1_dim = int(input_dim - (input_dim - latent_dim) / 2)
+        hidden_2_dim = int(hidden_1_dim - (hidden_1_dim - latent_dim) / 2)
         super(VariationalEncoder, self).__init__(input_dim, 2 * latent_dim, [hidden_1_dim, hidden_2_dim], name=name)
         self.latent_dim = latent_dim
 
@@ -24,9 +23,9 @@ class VariationalEncoder(MultiLayerPerceptron):
 
 class Decoder(MultiLayerPerceptron):
     def __init__(self, latent_dim, reconstructed_dim, name='decoder'):
-        hidden_1_dim = int(reconstructed_dim - 3 * (reconstructed_dim - latent_dim) / 4)
-        hidden_2_dim = int(reconstructed_dim - (reconstructed_dim - latent_dim) / 4)
-        super(Decoder, self).__init__(latent_dim, reconstructed_dim, [hidden_1_dim, hidden_2_dim], name=name)
+        hidden_1_dim = int(reconstructed_dim - (reconstructed_dim - latent_dim) / 2)
+        hidden_2_dim = int(hidden_1_dim - (hidden_1_dim - latent_dim) / 2)
+        super(Decoder, self).__init__(latent_dim, reconstructed_dim, [hidden_2_dim, hidden_1_dim], name=name)
 
 
 class BimodalVariationalAutoEncoder(tf.Module):
@@ -59,8 +58,8 @@ class BimodalVariationalAutoEncoder(tf.Module):
         enc_source_code = enc_source_code_dists.sample()
         dec_language = self.language_decoder(enc_language)
         dec_source_code = self.source_code_decoder(enc_source_code)
-        language_mse = tf.reduce_mean(tf.reduce_mean(tf.math.squared_difference(language_batch, dec_language), axis=1))
-        source_code_mse = tf.reduce_mean(tf.reduce_mean(tf.math.squared_difference(source_code_batch, dec_source_code), axis=1))
+        language_mse = tf.reduce_mean(tf.math.squared_difference(language_batch, dec_language))
+        source_code_mse = tf.reduce_mean(tf.math.squared_difference(source_code_batch, dec_source_code))
         return language_kl_divergence + source_code_kl_divergence + language_mse + source_code_mse
 
     def training_step(self, language_batch, source_code_batch, optimizer):
@@ -73,10 +72,9 @@ class BimodalVariationalAutoEncoder(tf.Module):
     def train(self, language_train_tensor, source_code_train_tensor, language_val_tensor, source_code_val_tensor,
               num_epochs, batch_size, optimizer):
         assert len(language_train_tensor) == len(source_code_train_tensor)
-        num_inputs = len(language_train_tensor)
         for epoch_num in range(1, num_epochs + 1):
             train_losses = []
-            for batch_num in range(int(num_inputs / batch_size)):
+            for batch_num in range(int(len(language_train_tensor) / batch_size)):
                 start = batch_num * batch_size
                 end = batch_num * batch_size + batch_size
                 language_batch = language_train_tensor[start: end]
@@ -84,16 +82,24 @@ class BimodalVariationalAutoEncoder(tf.Module):
                 current_loss = self.training_step(language_batch, source_code_batch, optimizer)
                 train_losses.append(current_loss)
             train_loss = sum(train_losses) / len(train_losses)
-            val_loss = self.loss(language_val_tensor, source_code_val_tensor)
+            val_losses = []
+            for batch_num in range(int(len(language_val_tensor) / batch_size)):
+                start = batch_num * batch_size
+                end = batch_num * batch_size + batch_size
+                language_batch = language_val_tensor[start: end]
+                source_code_batch = source_code_val_tensor[start: end]
+                current_loss = self.loss(language_batch, source_code_batch)
+                val_losses.append(current_loss)
+            val_loss = sum(val_losses) / len(val_losses)
             print("Epoch {} of {} completed, training loss = {}, validation loss = {}".format(
                 epoch_num, num_epochs, train_loss, val_loss))
 
 
 def main():
-    max_len = 40
+    max_len = 55
     train_summaries, train_codes = load_iyer_file("../data/iyer/train.txt", max_len=max_len)
-    summaries_wv = gensim.models.Word2Vec(train_summaries, size=80, min_count=5).wv
-    codes_wv = gensim.models.Word2Vec(train_codes, size=80, min_count=5).wv
+    summaries_wv = gensim.models.Word2Vec(train_summaries, size=100, min_count=5).wv
+    codes_wv = gensim.models.Word2Vec(train_codes, size=100, min_count=5).wv
     train_summaries_tensor = tokenized_texts_to_tensor(train_summaries, summaries_wv, max_len)
     train_codes_tensor = tokenized_texts_to_tensor(train_codes, codes_wv, max_len)
     train_summaries_tensor_fl = np.reshape(train_summaries_tensor,
@@ -123,13 +129,13 @@ def main():
                                       (test_codes_tensor.shape[0],
                                        test_codes_tensor.shape[1] * test_codes_tensor.shape[2]))
 
-    latent_dim = 512
+    latent_dim = 768
 
     model = BimodalVariationalAutoEncoder(train_summaries_tensor_fl.shape[1],
                                           train_codes_tensor_fl.shape[1],
                                           latent_dim)
 
-    model.train(train_summaries_tensor_fl, train_codes_tensor_fl, val_summaries_tensor_fl, val_codes_tensor_fl, 12, 128,
+    model.train(train_summaries_tensor_fl, train_codes_tensor_fl, val_summaries_tensor_fl, val_codes_tensor_fl, 35, 128,
                 tf.keras.optimizers.Adam(learning_rate=0.0001))
 
     random.seed()

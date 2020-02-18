@@ -9,6 +9,7 @@ class Dense(tf.Module):
         self.b = tf.Variable(tf.zeros((1, output_dim)))
         self.activation = activation
 
+    @tf.function
     def __call__(self, x):
         y = tf.matmul(x, self.w) + self.b
         if self.activation:
@@ -28,6 +29,7 @@ class MultiLayerPerceptron(tf.Module):
             from_dim = to_dim
         self.layers.append(Dense(from_dim, output_dim, final_activation))
 
+    @tf.function
     def __call__(self, x):
         for layer in self.layers:
             x = layer(x)
