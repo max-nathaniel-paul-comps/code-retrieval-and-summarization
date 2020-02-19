@@ -77,21 +77,21 @@ class VariationalAutoEncoder(tf.Module):
 
 
 def main():
-    wv_size = 100
-    language_wv = gensim.models.Word2Vec(load_iyer_file("../data/iyer/train.txt")[0], size=wv_size).wv
+    language_wv = gensim.models.KeyedVectors.load_word2vec_format("../data/embeddings/w2v_format_summaries_vectors.txt")
+    wv_size = language_wv.vector_size
 
-    max_len = 60
+    train_summaries, train_codes = load_iyer_file("../data/iyer_csharp/train.txt")
+    val_summaries, val_codes = load_iyer_file("../data/iyer_csharp/valid.txt")
+    test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt")
 
-    train_summaries, train_codes = load_iyer_file("../data/iyer/train.txt", max_len=max_len)
-    val_summaries, val_codes = load_iyer_file("../data/iyer/valid.txt", max_len=max_len)
-    test_summaries, test_codes = load_iyer_file("../data/iyer/test.txt", max_len=max_len)
+    max_len = max(len(summary) for summary in train_summaries)
 
     train_summaries = tokenized_texts_to_tensor(train_summaries, language_wv, max_len)
     val_summaries = tokenized_texts_to_tensor(val_summaries, language_wv, max_len)
     test_summaries = tokenized_texts_to_tensor(test_summaries, language_wv, max_len)
 
     model = VariationalAutoEncoder(train_summaries.shape[1], 512, wv_size)
-    model.train(train_summaries, val_summaries, 12, 128, tf.keras.optimizers.Adam(learning_rate=0.0001))
+    model.train(train_summaries, val_summaries, 6, 128, tf.keras.optimizers.Adam(learning_rate=0.001))
 
     for _ in range(20):
         random.seed()

@@ -76,14 +76,15 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
 
 def main():
-    wv_size = 100
-    language_wv = gensim.models.Word2Vec(load_iyer_file("../data/iyer/train.txt")[0], size=wv_size).wv
-    code_wv = gensim.models.Word2Vec(load_iyer_file("../data/iyer/train.txt")[1], size=wv_size).wv
+    language_wv = gensim.models.KeyedVectors.load_word2vec_format("../data/embeddings/w2v_format_summaries_vectors.txt")
+    code_wv = gensim.models.KeyedVectors.load_word2vec_format("../data/embeddings/w2v_format_codes_vectors.txt")
+    assert language_wv.vector_size == code_wv.vector_size
+    wv_size = language_wv.vector_size
 
     max_len = 39
-    train_summaries, train_codes = load_iyer_file("../data/iyer/train.txt", max_len=max_len)
-    val_summaries, val_codes = load_iyer_file("../data/iyer/valid.txt", max_len=max_len)
-    test_summaries, test_codes = load_iyer_file("../data/iyer/test.txt", max_len=max_len)
+    train_summaries, train_codes = load_iyer_file("../data/iyer_csharp/train.txt", max_len=max_len)
+    val_summaries, val_codes = load_iyer_file("../data/iyer_csharp/valid.txt", max_len=max_len)
+    test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt", max_len=max_len)
 
     train_summaries = tokenized_texts_to_tensor(train_summaries, language_wv, max_len)
     val_summaries = tokenized_texts_to_tensor(val_summaries, language_wv, max_len)

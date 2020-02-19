@@ -59,7 +59,7 @@ def tensor_to_tokenized_texts(tensor: np.ndarray, wv: gensim.models.KeyedVectors
 
 
 def main():
-    ex_dataset_file = open("../data/iyer/train.txt").readlines()
+    ex_dataset_file = open("../data/iyer_csharp/train.txt").readlines()
     ex_dataset = []
     for line in ex_dataset_file:
         items = line.split('\t')
