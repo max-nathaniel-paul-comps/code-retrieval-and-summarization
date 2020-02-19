@@ -1,12 +1,15 @@
 import tensorflow_probability as tfp
+import random
+import gensim
+from text_data_utils import *
 from mlp import *
 
 
 class VariationalEncoder(MultiLayerPerceptron):
-    def __init__(self, input_dim, latent_dim, name='variational_encoder'):
-        hidden_1_dim = int(input_dim - (input_dim - latent_dim) / 2)
+    def __init__(self, input_dim, latent_dim, wv_size, name='variational_encoder'):
+        hidden_1_dim = int(input_dim * wv_size - (input_dim * wv_size - latent_dim) / 2)
         hidden_2_dim = int(hidden_1_dim - (hidden_1_dim - latent_dim) / 2)
-        super(VariationalEncoder, self).__init__(input_dim, 2 * latent_dim, [hidden_1_dim, hidden_2_dim], name=name)
+        super(VariationalEncoder, self).__init__((input_dim, wv_size), 2 * latent_dim, [hidden_1_dim, hidden_2_dim], name=name)
         self.latent_dim = latent_dim
 
     def __call__(self, x):
@@ -17,7 +20,87 @@ class VariationalEncoder(MultiLayerPerceptron):
 
 
 class Decoder(MultiLayerPerceptron):
-    def __init__(self, latent_dim, reconstructed_dim, name='decoder'):
-        hidden_1_dim = int(reconstructed_dim - (reconstructed_dim - latent_dim) / 2)
+    def __init__(self, latent_dim, reconstructed_dim, wv_size, name='decoder'):
+        hidden_1_dim = int(reconstructed_dim * wv_size - (reconstructed_dim * wv_size - latent_dim) / 2)
         hidden_2_dim = int(hidden_1_dim - (hidden_1_dim - latent_dim) / 2)
-        super(Decoder, self).__init__(latent_dim, reconstructed_dim, [hidden_2_dim, hidden_1_dim], name=name)
+        super(Decoder, self).__init__(latent_dim, (reconstructed_dim, wv_size), [hidden_2_dim, hidden_1_dim], name=name)
+
+
+class VariationalAutoEncoder(tf.Module):
+    def __init__(self, input_dim, latent_dim, wv_size, name='vae'):
+        super(VariationalAutoEncoder, self).__init__(name=name)
+        self.encoder = VariationalEncoder(input_dim, latent_dim, wv_size)
+        self.decoder = Decoder(latent_dim, input_dim, wv_size)
+        self.wv_size = wv_size
+
+    def loss(self, inputs):
+        latent_dists = self.encoder(inputs)
+        sample_latent = latent_dists.sample()
+        emp_dist = tfp.distributions.Empirical(tf.transpose(sample_latent))
+        kl_divergence = tf.reduce_mean(
+            tfp.distributions.kl_divergence(
+                tfp.distributions.Normal(emp_dist.mean(), emp_dist.stddev()),
+                tfp.distributions.Normal(0.0, 1.0)
+            )
+        )
+        decoded = self.decoder(sample_latent)
+        mean_square_error = tf.reduce_mean(tf.math.squared_difference(inputs, decoded))
+        return mean_square_error + kl_divergence
+
+    def training_step(self, inputs, optimizer):
+        with tf.GradientTape() as t:
+            current_loss = self.loss(inputs)
+        grads = t.gradient(current_loss, self.trainable_variables)
+        optimizer.apply_gradients((grads[i], self.trainable_variables[i]) for i in range(len(grads)))
+        return current_loss
+
+    def train(self, inputs, val_inputs, num_epochs, batch_size, optimizer):
+        for epoch_num in range(1, num_epochs + 1):
+            train_losses = []
+            for batch_num in range(int(len(inputs) / batch_size)):
+                start = batch_num * batch_size
+                end = batch_num * batch_size + batch_size
+                batch = inputs[start: end]
+                current_loss = self.training_step(batch, optimizer)
+                train_losses.append(current_loss)
+            train_loss = sum(train_losses) / len(train_losses)
+            val_losses = []
+            for batch_num in range(int(len(val_inputs) / batch_size)):
+                start = batch_num * batch_size
+                end = batch_num * batch_size + batch_size
+                batch = val_inputs[start: end]
+                current_loss = self.loss(batch)
+                val_losses.append(current_loss)
+            val_loss = sum(val_losses) / len(val_losses)
+            print("Epoch {} of {} completed, training loss = {}, validation loss = {}".format(
+                epoch_num, num_epochs, train_loss, val_loss))
+
+
+def main():
+    wv_size = 100
+    language_wv = gensim.models.Word2Vec(load_iyer_file("../data/iyer/train.txt")[1], size=wv_size).wv
+
+    max_len = 60
+
+    train_codes, train_summaries = load_iyer_file("../data/iyer/train.txt", max_len=max_len)
+    val_codes, val_summaries = load_iyer_file("../data/iyer/valid.txt", max_len=max_len)
+    test_codes, test_summaries = load_iyer_file("../data/iyer/test.txt", max_len=max_len)
+
+    train_summaries = tokenized_texts_to_tensor(train_summaries, language_wv, max_len)
+    val_summaries = tokenized_texts_to_tensor(val_summaries, language_wv, max_len)
+    test_summaries = tokenized_texts_to_tensor(test_summaries, language_wv, max_len)
+
+    model = VariationalAutoEncoder(train_summaries.shape[1], 512, wv_size)
+    model.train(train_summaries, val_summaries, 12, 128, tf.keras.optimizers.Adam(learning_rate=0.0001))
+
+    for _ in range(20):
+        random.seed()
+        random_idx = random.randrange(test_summaries.shape[0])
+        rand_test = np.array([test_summaries[random_idx]])
+        print("(Test Set) Input: ", tensor_to_tokenized_texts(rand_test, language_wv)[0])
+        rec = model.decoder(model.encoder(rand_test).mean()).numpy()
+        print("(Test Set) Reconstructed: ", tensor_to_tokenized_texts(rec, language_wv)[0])
+
+
+if __name__ == "__main__":
+    main()

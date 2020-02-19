@@ -17,8 +17,8 @@ def load_iyer_file(filename: str, max_len: int = 0) -> Tuple[List[List[str]], Li
         items = line.split('\t')
         if len(items) == 5:
             split_line = line.split('\t')
-            summary = tokenize_text(split_line[2].lower())
-            code = tokenize_text(split_line[3])
+            summary = tokenize_text(split_line[2].lower().replace('\\n', ''))
+            code = tokenize_text(split_line[3].replace('\\n', ''))
             if max_len == 0 or (len(summary) < max_len and len(code) < max_len):
                 summaries.append(summary)
                 codes.append(code)

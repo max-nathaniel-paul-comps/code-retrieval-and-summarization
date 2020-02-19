@@ -6,18 +6,19 @@ from text_data_utils import *
 
 
 class BimodalVariationalAutoEncoder(tf.Module):
-    def __init__(self, language_dim, source_code_dim, latent_dim, name='bvae'):
+    def __init__(self, language_dim, source_code_dim, latent_dim, wv_size, name='bvae'):
         super(BimodalVariationalAutoEncoder, self).__init__(name=name)
-        self.language_encoder = VariationalEncoder(language_dim, latent_dim, 'language_encoder')
-        self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, 'source_code_encoder')
-        self.language_decoder = Decoder(latent_dim, language_dim, 'language_decoder')
-        self.source_code_decoder = Decoder(latent_dim, source_code_dim, 'source_code_decoder')
+        self.language_encoder = VariationalEncoder(language_dim, latent_dim, wv_size, name='language_encoder')
+        self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, wv_size, name='source_code_encoder')
+        self.language_decoder = Decoder(latent_dim, language_dim, wv_size, name='language_decoder')
+        self.source_code_decoder = Decoder(latent_dim, source_code_dim, wv_size, name='source_code_decoder')
 
     def loss(self, language_batch, source_code_batch):
         enc_language_dists = self.language_encoder(language_batch)
         enc_source_code_dists = self.source_code_encoder(source_code_batch)
         mean_mean = (enc_language_dists.mean() + enc_source_code_dists.mean()) / 2
         mean_stddev = (enc_language_dists.stddev() + enc_source_code_dists.stddev()) / 2
+
         language_kl_divergence = tf.reduce_mean(
             tfp.distributions.kl_divergence(
                 enc_language_dists,
@@ -35,8 +36,10 @@ class BimodalVariationalAutoEncoder(tf.Module):
         enc_source_code = enc_source_code_dists.sample()
         dec_language = self.language_decoder(enc_language)
         dec_source_code = self.source_code_decoder(enc_source_code)
+
         language_mse = tf.reduce_mean(tf.math.squared_difference(language_batch, dec_language))
         source_code_mse = tf.reduce_mean(tf.math.squared_difference(source_code_batch, dec_source_code))
+
         return language_kl_divergence + source_code_kl_divergence + language_mse + source_code_mse
 
     def training_step(self, language_batch, source_code_batch, optimizer):
@@ -73,55 +76,46 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
 
 def main():
+    wv_size = 100
+    language_wv = gensim.models.Word2Vec(load_iyer_file("../data/iyer/train.txt")[0], size=wv_size).wv
+    code_wv = gensim.models.Word2Vec(load_iyer_file("../data/iyer/train.txt")[1], size=wv_size).wv
+
     max_len = 39
     train_summaries, train_codes = load_iyer_file("../data/iyer/train.txt", max_len=max_len)
-    summaries_wv = gensim.models.Word2Vec(train_summaries, size=100, min_count=5).wv
-    codes_wv = gensim.models.Word2Vec(train_codes, size=100, min_count=5).wv
-    train_summaries_tensor = tokenized_texts_to_tensor(train_summaries, summaries_wv, max_len)
-    train_codes_tensor = tokenized_texts_to_tensor(train_codes, codes_wv, max_len)
-    train_summaries_tensor_fl = np.reshape(train_summaries_tensor,
-                                           (train_summaries_tensor.shape[0],
-                                            train_summaries_tensor.shape[1] * train_summaries_tensor.shape[2]))
-    train_codes_tensor_fl = np.reshape(train_codes_tensor,
-                                       (train_codes_tensor.shape[0],
-                                        train_codes_tensor.shape[1] * train_codes_tensor.shape[2]))
-
     val_summaries, val_codes = load_iyer_file("../data/iyer/valid.txt", max_len=max_len)
-    val_summaries_tensor = tokenized_texts_to_tensor(val_summaries, summaries_wv, max_len)
-    val_codes_tensor = tokenized_texts_to_tensor(val_codes, codes_wv, max_len)
-    val_summaries_tensor_fl = np.reshape(val_summaries_tensor,
-                                         (val_summaries_tensor.shape[0],
-                                          val_summaries_tensor.shape[1] * val_summaries_tensor.shape[2]))
-    val_codes_tensor_fl = np.reshape(val_codes_tensor,
-                                     (val_codes_tensor.shape[0],
-                                      val_codes_tensor.shape[1] * val_codes_tensor.shape[2]))
-
     test_summaries, test_codes = load_iyer_file("../data/iyer/test.txt", max_len=max_len)
-    test_summaries_tensor = tokenized_texts_to_tensor(test_summaries, summaries_wv, max_len)
-    test_codes_tensor = tokenized_texts_to_tensor(test_codes, codes_wv, max_len)
-    test_summaries_tensor_fl = np.reshape(test_summaries_tensor,
-                                          (test_summaries_tensor.shape[0],
-                                           test_summaries_tensor.shape[1] * test_summaries_tensor.shape[2]))
-    test_codes_tensor_fl = np.reshape(test_codes_tensor,
-                                      (test_codes_tensor.shape[0],
-                                       test_codes_tensor.shape[1] * test_codes_tensor.shape[2]))
+
+    train_summaries = tokenized_texts_to_tensor(train_summaries, language_wv, max_len)
+    val_summaries = tokenized_texts_to_tensor(val_summaries, language_wv, max_len)
+    test_summaries = tokenized_texts_to_tensor(test_summaries, language_wv, max_len)
+
+    train_codes = tokenized_texts_to_tensor(train_codes, code_wv, max_len)
+    val_codes = tokenized_texts_to_tensor(val_codes, code_wv, max_len)
+    test_codes = tokenized_texts_to_tensor(test_codes, code_wv, max_len)
 
     latent_dim = 768
 
-    model = BimodalVariationalAutoEncoder(train_summaries_tensor_fl.shape[1],
-                                          train_codes_tensor_fl.shape[1],
-                                          latent_dim)
+    model = BimodalVariationalAutoEncoder(train_summaries.shape[1], train_codes.shape[1], latent_dim, wv_size)
 
-    model.train(train_summaries_tensor_fl, train_codes_tensor_fl, val_summaries_tensor_fl, val_codes_tensor_fl, 35, 128,
+    model.train(train_summaries, train_codes, val_summaries, val_codes, 35, 128,
                 tf.keras.optimizers.Adam(learning_rate=0.0001))
 
-    random.seed()
-    random_idx = random.randrange(test_summaries_tensor.shape[0])
-    rand_test = np.array([test_summaries_tensor[random_idx]])
-    print("(Test Set) Input: ", tensor_to_tokenized_texts(rand_test, summaries_wv)[0])
-    rec = np.reshape(model.language_decoder(model.language_encoder(np.array([test_summaries_tensor_fl[random_idx]])).sample()), (1, test_summaries_tensor.shape[1], test_summaries_tensor.shape[2]))
-    print("(Test Set) Reconstructed: ", tensor_to_tokenized_texts(rec, summaries_wv)[0])
-    print("Hi")
+    for _ in range(20):
+        random.seed()
+        random_idx = random.randrange(test_summaries.shape[0])
+        rand_test_summary = np.array([test_summaries[random_idx]])
+        print("(Test Set) Input Summary: ", tensor_to_tokenized_texts(rand_test_summary, language_wv)[0])
+        rand_test_code = np.array([test_codes[random_idx]])
+        print("(Test Set) Input Code: ", tensor_to_tokenized_texts(rand_test_code, code_wv)[0])
+        rec_summary = model.language_decoder(model.language_encoder(rand_test_summary).mean()).numpy()
+        print("(Test Set) Reconstructed Summary: ", tensor_to_tokenized_texts(rec_summary, language_wv)[0])
+        rec_code = model.source_code_decoder(model.source_code_encoder(rand_test_code).mean()).numpy()
+        print("(Test Set) Reconstructed Source Code: ", tensor_to_tokenized_texts(rec_code, code_wv)[0])
+        rec_summary_hard = model.language_decoder(model.source_code_encoder(rand_test_code).mean()).numpy()
+        print("(Test Set) Reconstructed Summary From Source Code: ", tensor_to_tokenized_texts(rec_summary_hard, language_wv)[0])
+        rec_code_hard = model.source_code_decoder(model.language_encoder(rand_test_summary).mean()).numpy()
+        print("(Test Set) Reconstructed Source Code From Summary: ", tensor_to_tokenized_texts(rec_code_hard, code_wv)[0])
+        print()
 
 
 if __name__ == "__main__":
