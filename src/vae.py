@@ -44,8 +44,8 @@ class VariationalAutoEncoder(tf.Module):
             )
         )
         decoded = self.decoder(sample_latent)
-        mean_square_error = tf.reduce_mean(tf.math.squared_difference(inputs, decoded))
-        return mean_square_error + kl_divergence
+        recon = tf.reduce_mean(tf.losses.cosine_similarity(inputs, decoded) + 1)
+        return recon + kl_divergence
 
     def training_step(self, inputs, optimizer):
         with tf.GradientTape() as t:
@@ -78,13 +78,13 @@ class VariationalAutoEncoder(tf.Module):
 
 def main():
     wv_size = 100
-    language_wv = gensim.models.Word2Vec(load_iyer_file("../data/iyer/train.txt")[1], size=wv_size).wv
+    language_wv = gensim.models.Word2Vec(load_iyer_file("../data/iyer/train.txt")[0], size=wv_size).wv
 
     max_len = 60
 
-    train_codes, train_summaries = load_iyer_file("../data/iyer/train.txt", max_len=max_len)
-    val_codes, val_summaries = load_iyer_file("../data/iyer/valid.txt", max_len=max_len)
-    test_codes, test_summaries = load_iyer_file("../data/iyer/test.txt", max_len=max_len)
+    train_summaries, train_codes = load_iyer_file("../data/iyer/train.txt", max_len=max_len)
+    val_summaries, val_codes = load_iyer_file("../data/iyer/valid.txt", max_len=max_len)
+    test_summaries, test_codes = load_iyer_file("../data/iyer/test.txt", max_len=max_len)
 
     train_summaries = tokenized_texts_to_tensor(train_summaries, language_wv, max_len)
     val_summaries = tokenized_texts_to_tensor(val_summaries, language_wv, max_len)
@@ -99,7 +99,8 @@ def main():
         rand_test = np.array([test_summaries[random_idx]])
         print("(Test Set) Input: ", tensor_to_tokenized_texts(rand_test, language_wv)[0])
         rec = model.decoder(model.encoder(rand_test).mean()).numpy()
-        print("(Test Set) Reconstructed: ", tensor_to_tokenized_texts(rec, language_wv)[0])
+        print("(Test Set) Recon: ", tensor_to_tokenized_texts(rec, language_wv)[0])
+        print()
 
 
 if __name__ == "__main__":

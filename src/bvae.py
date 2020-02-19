@@ -37,10 +37,10 @@ class BimodalVariationalAutoEncoder(tf.Module):
         dec_language = self.language_decoder(enc_language)
         dec_source_code = self.source_code_decoder(enc_source_code)
 
-        language_mse = tf.reduce_mean(tf.math.squared_difference(language_batch, dec_language))
-        source_code_mse = tf.reduce_mean(tf.math.squared_difference(source_code_batch, dec_source_code))
+        language_recon = tf.reduce_mean(tf.losses.cosine_similarity(language_batch, dec_language) + 1)
+        source_code_recon = tf.reduce_mean(tf.losses.cosine_similarity(source_code_batch, dec_source_code) + 1)
 
-        return language_kl_divergence + source_code_kl_divergence + language_mse + source_code_mse
+        return language_kl_divergence + source_code_kl_divergence + language_recon + source_code_recon
 
     def training_step(self, language_batch, source_code_batch, optimizer):
         with tf.GradientTape() as t:
