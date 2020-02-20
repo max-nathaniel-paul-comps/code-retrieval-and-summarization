@@ -37,8 +37,15 @@ class BimodalVariationalAutoEncoder(tf.Module):
         dec_language = self.language_decoder(enc_language)
         dec_source_code = self.source_code_decoder(enc_source_code)
 
-        language_recon = tf.reduce_mean(tf.losses.cosine_similarity(language_batch, dec_language) + 1)
-        source_code_recon = tf.reduce_mean(tf.losses.cosine_similarity(source_code_batch, dec_source_code) + 1)
+        language_mask = tf.reduce_all(tf.equal(language_batch, 0.0), axis=-1)
+        language_recon_tensor = tf.losses.cosine_similarity(language_batch, dec_language) + 1
+        language_recon_masked = tf.where(language_mask, x=0.0, y=language_recon_tensor)
+        language_recon = tf.reduce_sum(language_recon_masked) / tf.reduce_sum(tf.cast(language_mask, 'float32'))
+
+        source_code_mask = tf.reduce_all(tf.equal(source_code_batch, 0.0), axis=-1)
+        source_code_recon_tensor = tf.losses.cosine_similarity(source_code_batch, dec_source_code) + 1
+        source_code_recon_masked = tf.where(source_code_mask, x=0.0, y=source_code_recon_tensor)
+        source_code_recon = tf.reduce_sum(source_code_recon_masked) / tf.reduce_sum(tf.cast(source_code_mask, 'float32'))
 
         return language_kl_divergence + source_code_kl_divergence + language_recon + source_code_recon
 
@@ -99,7 +106,7 @@ def main():
     model = BimodalVariationalAutoEncoder(train_summaries.shape[1], train_codes.shape[1], latent_dim, wv_size)
 
     model.train(train_summaries, train_codes, val_summaries, val_codes, 35, 128,
-                tf.keras.optimizers.Adam(learning_rate=0.0001))
+                tf.keras.optimizers.Adam(learning_rate=0.001))
 
     for _ in range(20):
         random.seed()

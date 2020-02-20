@@ -36,7 +36,7 @@ class VariationalAutoEncoder(tf.Module):
     def loss(self, inputs):
         latent_dists = self.encoder(inputs)
         sample_latent = latent_dists.sample()
-        emp_dist = tfp.distributions.Empirical(tf.transpose(sample_latent))
+        emp_dist = tfp.distributions.Empirical(sample_latent, event_ndims=1)
         kl_divergence = tf.reduce_mean(
             tfp.distributions.kl_divergence(
                 tfp.distributions.Normal(emp_dist.mean(), emp_dist.stddev()),
@@ -44,8 +44,11 @@ class VariationalAutoEncoder(tf.Module):
             )
         )
         decoded = self.decoder(sample_latent)
-        recon = tf.reduce_mean(tf.losses.cosine_similarity(inputs, decoded) + 1)
-        return recon + kl_divergence
+        mask = tf.reduce_all(tf.equal(inputs, 0.0), axis=-1)
+        recon_tensor = tf.losses.cosine_similarity(inputs, decoded) + 1
+        recon_masked = tf.where(mask, x=0.0, y=recon_tensor)
+        recon = tf.reduce_sum(recon_masked) / tf.reduce_sum(tf.cast(mask, 'float32'))
+        return kl_divergence + recon
 
     def training_step(self, inputs, optimizer):
         with tf.GradientTape() as t:
@@ -90,7 +93,7 @@ def main():
     val_summaries = tokenized_texts_to_tensor(val_summaries, language_wv, max_len)
     test_summaries = tokenized_texts_to_tensor(test_summaries, language_wv, max_len)
 
-    model = VariationalAutoEncoder(train_summaries.shape[1], 512, wv_size)
+    model = VariationalAutoEncoder(train_summaries.shape[1], 256, wv_size)
     model.train(train_summaries, val_summaries, 6, 128, tf.keras.optimizers.Adam(learning_rate=0.001))
 
     for _ in range(20):
