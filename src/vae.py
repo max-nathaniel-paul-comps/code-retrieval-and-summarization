@@ -5,6 +5,14 @@ import gensim
 from text_data_utils import *
 
 
+def recon_loss(true, pred):
+    mask = tf.reduce_all(tf.logical_not(tf.equal(true, 0.0)), axis=-1)
+    recon_tensor = tf.losses.cosine_similarity(true, pred) + 1
+    recon_masked = tf.where(mask, x=recon_tensor, y=0.0)
+    recon = tf.reduce_sum(recon_masked) / tf.reduce_sum(tf.cast(mask, 'float32'))
+    return recon
+
+
 class VariationalEncoder(tf.keras.models.Sequential):
     def __init__(self, input_dim, latent_dim, wv_size, name='variational_encoder'):
         hidden_1_dim = int(input_dim * wv_size - (input_dim * wv_size - latent_dim) / 2)
@@ -65,10 +73,7 @@ class VariationalAutoEncoder(tf.keras.Model):
         )
         self.add_loss(kl_divergence)
         decoded = self.decoder(sample_latent)
-        mask = tf.reduce_all(tf.logical_not(tf.equal(inputs, 0.0)), axis=-1)
-        recon_tensor = tf.losses.cosine_similarity(inputs, decoded) + 1
-        recon_masked = tf.where(mask, x=recon_tensor, y=0.0)
-        recon = tf.reduce_sum(recon_masked) / tf.reduce_sum(tf.cast(mask, 'float32'))
+        recon = recon_loss(inputs, decoded)
         self.add_loss(recon)
         return decoded
 
@@ -92,17 +97,17 @@ def main():
     val_codes = tokenized_texts_to_tensor(val_codes, code_wv, max_len)
     test_codes = tokenized_texts_to_tensor(test_codes, code_wv, max_len)
 
-    model = VariationalAutoEncoder(train_codes.shape[1], 256, wv_size)
+    model = VariationalAutoEncoder(train_summaries.shape[1], 128, wv_size)
     model.compile(optimizer='adam')
-    model.fit(train_codes, None, batch_size=128, epochs=35, validation_data=(val_codes, None))
+    model.fit(train_summaries, None, batch_size=128, epochs=6, validation_data=(val_summaries, None))
 
     for _ in range(20):
         random.seed()
-        random_idx = random.randrange(test_codes.shape[0])
-        rand_test = np.array([test_codes[random_idx]])
-        print("(Test Set) Input: ", tensor_to_tokenized_texts(rand_test, code_wv)[0])
+        random_idx = random.randrange(test_summaries.shape[0])
+        rand_test = np.array([test_summaries[random_idx]])
+        print("(Test Set) Input: ", tensor_to_tokenized_texts(rand_test, language_wv)[0])
         rec = model.decoder(model.encoder(rand_test).mean()).numpy()
-        print("(Test Set) Recon: ", tensor_to_tokenized_texts(rec, code_wv)[0])
+        print("(Test Set) Recon: ", tensor_to_tokenized_texts(rec, language_wv)[0])
         print()
 
 
