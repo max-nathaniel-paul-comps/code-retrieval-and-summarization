@@ -4,6 +4,14 @@ import gensim
 from typing import Tuple, List
 
 
+def preprocess_language(language: str) -> str:
+    return language.lower().replace('\\n', '')
+
+
+def preprocess_source_code(source_code: str) -> str:
+    return source_code.replace('\\n', '')
+
+
 def tokenize_text(text: str) -> List[str]:
     words_re = re.compile(r'(\w+|[^\w\s])')
     return ['<s>'] + words_re.findall(text) + ['</s>']
@@ -17,8 +25,8 @@ def load_iyer_file(filename: str, max_len: int = 0) -> Tuple[List[List[str]], Li
         items = line.split('\t')
         if len(items) == 5:
             split_line = line.split('\t')
-            summary = tokenize_text(split_line[2].lower().replace('\\n', ''))
-            code = tokenize_text(split_line[3].replace('\\n', ''))
+            summary = tokenize_text(preprocess_language(split_line[2]))
+            code = tokenize_text(preprocess_source_code(split_line[3]))
             if max_len == 0 or (len(summary) < max_len and len(code) < max_len):
                 summaries.append(summary)
                 codes.append(code)
