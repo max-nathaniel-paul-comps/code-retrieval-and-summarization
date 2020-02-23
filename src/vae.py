@@ -2,6 +2,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import random
 import gensim
+import matplotlib.pyplot as plt
 from text_data_utils import *
 
 
@@ -22,8 +23,10 @@ class VariationalEncoder(tf.keras.models.Sequential):
                 tf.keras.layers.Flatten(input_shape=(input_dim, wv_size)),
                 tf.keras.layers.Dense(hidden_1_dim),
                 tf.keras.layers.LeakyReLU(),
+                tf.keras.layers.Dropout(0.075),
                 tf.keras.layers.Dense(hidden_2_dim),
                 tf.keras.layers.LeakyReLU(),
+                tf.keras.layers.Dropout(0.075),
                 tf.keras.layers.Dense(latent_dim * 2)
             ],
             name=name
@@ -45,8 +48,10 @@ class Decoder(tf.keras.models.Sequential):
             [
                 tf.keras.layers.Dense(hidden_2_dim, input_dim=latent_dim),
                 tf.keras.layers.LeakyReLU(),
+                tf.keras.layers.Dropout(0.075),
                 tf.keras.layers.Dense(hidden_1_dim),
                 tf.keras.layers.LeakyReLU(),
+                tf.keras.layers.Dropout(0.075),
                 tf.keras.layers.Dense(reconstructed_dim * wv_size),
                 tf.keras.layers.Reshape((reconstructed_dim, wv_size))
             ],
@@ -79,35 +84,41 @@ class VariationalAutoEncoder(tf.keras.Model):
 
 
 def main():
-    language_wv = gensim.models.KeyedVectors.load_word2vec_format("../data/embeddings/w2v_format_summaries_vectors.txt")
-    code_wv = gensim.models.KeyedVectors.load_word2vec_format("../data/embeddings/w2v_format_codes_vectors.txt")
-    assert language_wv.vector_size == code_wv.vector_size
-    wv_size = language_wv.vector_size
+    wv = gensim.models.KeyedVectors.load_word2vec_format("../data/embeddings/w2v_format_codes_vectors.txt")
+    wv_size = wv.vector_size
 
     max_len = 100
-    train_summaries, train_codes = load_iyer_file("../data/iyer_csharp/train.txt", max_len=max_len)
-    val_summaries, val_codes = load_iyer_file("../data/iyer_csharp/valid.txt", max_len=max_len)
-    test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt", max_len=max_len)
 
-    train_summaries = tokenized_texts_to_tensor(train_summaries, language_wv, max_len)
-    val_summaries = tokenized_texts_to_tensor(val_summaries, language_wv, max_len)
-    test_summaries = tokenized_texts_to_tensor(test_summaries, language_wv, max_len)
+    _, train = load_iyer_file("../data/iyer_csharp/train.txt", max_len=max_len)
+    _, val = load_iyer_file("../data/iyer_csharp/valid.txt", max_len=max_len)
+    _, test = load_iyer_file("../data/iyer_csharp/test.txt", max_len=max_len)
 
-    train_codes = tokenized_texts_to_tensor(train_codes, code_wv, max_len)
-    val_codes = tokenized_texts_to_tensor(val_codes, code_wv, max_len)
-    test_codes = tokenized_texts_to_tensor(test_codes, code_wv, max_len)
+    train = tokenized_texts_to_tensor(train, wv, max_len)
+    val = tokenized_texts_to_tensor(val, wv, max_len)
+    test = tokenized_texts_to_tensor(test, wv, max_len)
 
-    model = VariationalAutoEncoder(train_summaries.shape[1], 128, wv_size)
+    latent_dim = 192
+    model = VariationalAutoEncoder(train.shape[1], latent_dim, wv_size)
     model.compile(optimizer='adam')
-    model.fit(train_summaries, None, batch_size=128, epochs=6, validation_data=(val_summaries, None))
+    history = model.fit(train, None, batch_size=128, epochs=24, validation_data=(val, None))
+
+    print("\nTest Set Loss: %s\n" % model.evaluate(test, None, batch_size=128, verbose=False))
+
+    plt.plot(history.history['loss'])
+    plt.plot(history.history['val_loss'])
+    plt.title('vae model loss latent_dim=' + str(latent_dim))
+    plt.ylabel('loss')
+    plt.xlabel('epoch')
+    plt.legend(['train', 'val'], loc='upper left')
+    plt.show()
 
     for _ in range(20):
         random.seed()
-        random_idx = random.randrange(test_summaries.shape[0])
-        rand_test = np.array([test_summaries[random_idx]])
-        print("(Test Set) Input: ", tensor_to_tokenized_texts(rand_test, language_wv)[0])
+        random_idx = random.randrange(test.shape[0])
+        rand_test = np.array([test[random_idx]])
+        print("(Test Set) Input: ", tensor_to_tokenized_texts(rand_test, wv)[0])
         rec = model.decoder(model.encoder(rand_test).mean()).numpy()
-        print("(Test Set) Recon: ", tensor_to_tokenized_texts(rec, language_wv)[0])
+        print("(Test Set) Recon: ", tensor_to_tokenized_texts(rec, wv)[0])
         print()
 
 
