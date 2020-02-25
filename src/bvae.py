@@ -85,10 +85,12 @@ class Decoder(tf.keras.models.Sequential):
 
 
 class BimodalVariationalAutoEncoder(tf.keras.Model):
-    def __init__(self, language_dim, source_code_dim, latent_dim, wv_size, name='bvae'):
+    def __init__(self, language_dim, source_code_dim, latent_dim, wv_size, input_dropout=0.05, name='bvae'):
         super(BimodalVariationalAutoEncoder, self).__init__(name=name)
-        self.language_encoder = VariationalEncoder(language_dim, latent_dim, wv_size, name='language_encoder')
-        self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, wv_size, name='source_code_encoder')
+        self.language_encoder = VariationalEncoder(language_dim, latent_dim, wv_size, input_dropout=input_dropout,
+                                                   name='language_encoder')
+        self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, wv_size, input_dropout=input_dropout,
+                                                      name='source_code_encoder')
         self.language_decoder = Decoder(latent_dim, language_dim, wv_size, name='language_decoder')
         self.source_code_decoder = Decoder(latent_dim, source_code_dim, wv_size, name='source_code_decoder')
 
