@@ -48,7 +48,7 @@ class VariationalEncoder(tf.keras.models.Sequential):
         super(VariationalEncoder, self).__init__(
             [
                 tf.keras.layers.Input(shape=(input_dim, wv_size)),
-                tf.keras.layers.Dropout(input_dropout),
+                tf.keras.layers.Dropout(input_dropout, noise_shape=(None, input_dim, 1)),
                 tf.keras.layers.Flatten(),
                 tf.keras.layers.Dense(hidden_1_dim),
                 tf.keras.layers.LeakyReLU(),
@@ -123,7 +123,7 @@ def main():
     assert language_wv.vector_size == code_wv.vector_size
     wv_size = language_wv.vector_size
 
-    max_len = 200
+    max_len = 50
     train_summaries, train_codes = load_iyer_file("../data/iyer_csharp/train.txt", max_len=max_len)
     val_summaries, val_codes = load_iyer_file("../data/iyer_csharp/valid.txt", max_len=max_len)
     test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt", max_len=max_len)
@@ -138,7 +138,7 @@ def main():
 
     latent_dim = 128
     model = BimodalVariationalAutoEncoder(train_summaries.shape[1], train_codes.shape[1], latent_dim, wv_size)
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001))
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=True)
 
     history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=36,
                         validation_data=((val_summaries, val_codes), None))
