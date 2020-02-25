@@ -1,0 +1,324 @@
+Title,Body
+How do I make event callbacks into my win forms thread safe?,"void SomethingHappened(object sender, EventArgs ea)
+{
+   if (InvokeRequired)
+   {
+      Invoke(new Action&lt;object, EventArgs&gt;(SomethingHappened), sender, ea);
+      return;
+   }
+
+   textBox1.Text = ""Something happened"";
+}
+"
+Disable asp.net radiobutton with javascript,"    private static void DisableControl(WebControl control)
+    {
+        Type controlType = control.GetType();
+
+        if (controlType == typeof(CheckBox))
+        {
+            ((CheckBox)control).InputAttributes.Add(""disabled"", ""disabled"");
+
+        }
+        else if (controlType == typeof(RadioButton))
+        {
+            ((RadioButton)control).InputAttributes.Add(""disabled"", ""true"");
+        }
+        else if (controlType == typeof(ImageButton))
+        {
+            ((ImageButton)control).Enabled = false;
+        }
+        else
+        {
+            control.Attributes.Add(""readonly"", ""readonly"");
+        }
+    }
+"
+How can I expose only a fragment of IList<>?,"IEnumerable&lt;T&gt; FilterCollection&lt;T&gt;( ReadOnlyCollection&lt;T&gt; input ) {
+    foreach ( T item in input )
+        if (  /* criterion is met */ )
+            yield return item;
+}
+"
+Fastest way to find common items across multiple lists in C#,"var x = from list in optionLists
+        from option in list
+        where optionLists.All(l =&gt; l.Any(o =&gt; o.Value == option.Value))
+        orderby option.Value
+        select option;
+"
+Context.User losing Roles after being assigned in Global.asax.Application_AuthenticateRequest,"&lt;system.web&gt;
+  &lt;roleManager enabled=""true"" /&gt;
+&lt;/system.web&gt;
+"
+Dynamically Create a generic type for template,"string elementTypeName = Console.ReadLine();
+Type elementType = Type.GetType(elementTypeName);
+Type[] types = new Type[] { elementType };
+
+Type listType = typeof(List&lt;&gt;);
+Type genericType = listType.MakeGenericType(types);
+IProxy  proxy = (IProxy)Activator.CreateInstance(genericType);
+"
+What is the simplest way to initialize an Array of N numbers following a simple pattern?,"var numbers = Enumerable.Range(0, n).Select(i =&gt; i * 3 + 9);
+"
+How to double buffer .NET controls on a form?,"public static void SetDoubleBuffered(System.Windows.Forms.Control c)
+{
+   //Taxes: Remote Desktop Connection and painting
+   //http://blogs.msdn.com/oldnewthing/archive/2006/01/03/508694.aspx
+   if (System.Windows.Forms.SystemInformation.TerminalServerSession)
+      return;
+
+   System.Reflection.PropertyInfo aProp = 
+         typeof(System.Windows.Forms.Control).GetProperty(
+               ""DoubleBuffered"", 
+               System.Reflection.BindingFlags.NonPublic | 
+               System.Reflection.BindingFlags.Instance);
+
+   aProp.SetValue(c, true, null); 
+}
+"
+Combining two SyndicationFeeds,"using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Xml;
+using System.ServiceModel.Syndication;
+
+namespace FeedUnion
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Uri feedUri = new Uri(""http://stackoverflow.com/feeds/tag/silverlight""); 
+            SyndicationFeed feed;
+            SyndicationFeed feed2;
+            using(XmlReader reader = XmlReader.Create(feedUri.AbsoluteUri))
+            {
+                feed= SyndicationFeed.Load(reader); 
+            }
+            Uri feed2Uri = new Uri(""http://stackoverflow.com/feeds/tag/wpf""); 
+            using (XmlReader reader2 = XmlReader.Create(feed2Uri.AbsoluteUri))
+            {
+            feed2 = SyndicationFeed.Load(reader2);
+            }
+            SyndicationFeed feed3 = new SyndicationFeed(feed.Items.Union(feed2.Items));
+            StringBuilder builder = new StringBuilder();
+            using (XmlWriter writer = XmlWriter.Create(builder))
+            {
+                feed3.SaveAsRss20(writer);
+                System.Console.Write(builder.ToString());
+                System.Console.Read();
+            }
+        }
+    }
+}
+"
+How does c# figure out the hash code for an object?,"using System.Collections.Generic;
+
+namespace csharp_tricks
+{
+    class Program
+    {
+        class MyClass
+        {
+            int keyValue;
+            int someInfo;
+
+            public MyClass(int key, int info)
+            {
+                keyValue = key;
+                someInfo = info;
+            }
+
+            public override bool Equals(object obj)
+            {
+                MyClass other = obj as MyClass;
+                if (other == null) return false;
+
+                return keyValue.Equals(other.keyValue);
+            }
+
+            public override int GetHashCode()
+            {
+                return keyValue.GetHashCode();
+            }
+        }
+
+        class Pair&lt;T, R&gt;
+        {
+            public T First { get; set; }
+            public R Second { get; set; }
+        }
+
+        static void Main(string[] args)
+        {
+            var dict = new Dictionary&lt;Pair&lt;int, MyClass&gt;, object&gt;();
+
+            dict.Add(new Pair&lt;int, MyClass&gt;() { First = 1, Second = new MyClass(1, 2) }, 1);
+
+            //this is a pair of the same values as previous! but... no exception this time...
+            dict.Add(new Pair&lt;int, MyClass&gt;() { First = 1, Second = new MyClass(1, 3) }, 1);
+
+            return;
+        }
+    }
+}
+"
+Absolute path back to web-relative path,"String RelativePath = AbsolutePath.Replace(Request.ServerVariables[""APPL_PHYSICAL_PATH""], String.Empty);
+"
+Convert integers to written numbers,"public static class HumanFriendlyInteger
+{
+    static string[] ones = new string[] { """", ""One"", ""Two"", ""Three"", ""Four"", ""Five"", ""Six"", ""Seven"", ""Eight"", ""Nine"" };
+    static string[] teens = new string[] { ""Ten"", ""Eleven"", ""Twelve"", ""Thirteen"", ""Fourteen"", ""Fifteen"", ""Sixteen"", ""Seventeen"", ""Eighteen"", ""Nineteen"" };
+    static string[] tens = new string[] { ""Twenty"", ""Thirty"", ""Forty"", ""Fifty"", ""Sixty"", ""Seventy"", ""Eighty"", ""Ninety"" };
+    static string[] thousandsGroups = { """", "" Thousand"", "" Million"", "" Billion"" };
+
+    private static string FriendlyInteger(int n, string leftDigits, int thousands)
+    {
+        if (n == 0)
+        {
+            return leftDigits;
+        }
+
+        string friendlyInt = leftDigits;
+
+        if (friendlyInt.Length &gt; 0)
+        {
+            friendlyInt += "" "";
+        }
+
+        if (n &lt; 10)
+        {
+            friendlyInt += ones[n];
+        }
+        else if (n &lt; 20)
+        {
+            friendlyInt += teens[n - 10];
+        }
+        else if (n &lt; 100)
+        {
+            friendlyInt += FriendlyInteger(n % 10, tens[n / 10 - 2], 0);
+        }
+        else if (n &lt; 1000)
+        {
+            friendlyInt += FriendlyInteger(n % 100, (ones[n / 100] + "" Hundred""), 0);
+        }
+        else
+        {
+            friendlyInt += FriendlyInteger(n % 1000, FriendlyInteger(n / 1000, """", thousands+1), 0);
+            if (n % 1000 == 0)
+            {
+                return friendlyInt;
+            }
+        }
+
+        return friendlyInt + thousandsGroups[thousands];
+    }
+
+    public static string IntegerToWritten(int n)
+    {
+        if (n == 0)
+        {
+            return ""Zero"";
+        }
+        else if (n &lt; 0)
+        {
+            return ""Negative "" + IntegerToWritten(-n);
+        }
+
+        return FriendlyInteger(n, """", 0);
+    }
+}
+"
+How do I remove duplicates from a C# array?,"int[] s = { 1, 2, 3, 3, 4};
+int[] q = s.Distinct().ToArray();
+"
+Calculate DateTime Weeks into Rows,"public int GetWeekRows(int year, int month)
+{
+    DateTime firstDayOfMonth = new DateTime(year, month, 1);
+    DateTime lastDayOfMonth = new DateTime(year, month, 1).AddMonths(1).AddDays(-1);
+    System.Globalization.Calendar calendar = System.Threading.Thread.CurrentThread.CurrentCulture.Calendar;
+    int lastWeek = calendar.GetWeekOfYear(lastDayOfMonth, System.Globalization.CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
+    int firstWeek = calendar.GetWeekOfYear(firstDayOfMonth, System.Globalization.CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
+    return lastWeek - firstWeek + 1;
+}
+"
+Best method of Textfile Parsing in C#?,"customer:
+  name: Orion
+  age: 26
+  addresses:
+    - type: Work
+      number: 12
+      street: Bob Street
+    - type: Home
+      number: 15
+      street: Secret Road
+"
+Hiding inherited members,"[Obsolete(""These are not supported in this class."", true)]
+public override  void dontcallmeanymore()
+{
+}
+"
+Reducing duplicate error handling code in C#?,"[RetryFor( 10.Hours() )]
+public void DeleteArchive()
+{
+  //.. code to just delete the archive
+}
+"
+Is the C# static constructor thread safe?,"public class Singleton
+{
+    private static Singleton instance;
+    // Added a static mutex for synchronising use of instance.
+    private static System.Threading.Mutex mutex;
+    private Singleton() { }
+    static Singleton()
+    {
+        instance = new Singleton();
+        mutex = new System.Threading.Mutex();
+    }
+
+    public static Singleton Acquire()
+    {
+        mutex.WaitOne();
+        return instance;
+    }
+
+    // Each call to Acquire() requires a call to Release()
+    public static void Release()
+    {
+        mutex.ReleaseMutex();
+    }
+}
+"
+Enforce Attribute Decoration of Classes/Methods,"[TestClass]
+public class When_type_inherits_MyObject
+{
+    private readonly List&lt;Type&gt; _types = new List&lt;Type&gt;();
+
+    public When_type_inherits_MyObject()
+    {
+        // lets find all types that inherit from MyObject, directly or indirectly
+        foreach(Type type in typeof(MyObject).Assembly.GetTypes())
+        {
+            if(type.IsClass &amp;&amp; typeof(MyObject).IsAssignableFrom(type))
+            {
+                _types.Add(type);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Properties_have_XmlElement_attribute
+    {
+        foreach(Type type in _types)
+        {
+            foreach(PropertyInfo property in type.GetProperties())
+            {
+                object[] attribs = property.GetCustomAttributes(typeof(XmlElementAttribute), false);
+                Assert.IsTrue(attribs.Count &gt; 0, ""Missing XmlElementAttribute on property "" + property.Name + "" in type "" + type.FullName);
+            }
+        }
+    }
+}
+"
+How to round up the result of integer division?,"int pageCount = (records + recordsPerPage - 1) / recordsPerPage;
+"
