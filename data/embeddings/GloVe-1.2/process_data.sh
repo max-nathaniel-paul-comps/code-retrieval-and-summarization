@@ -5,12 +5,12 @@
 
 make
 
-CORPUS=../codes_text.txt
+CORPUS=../summaries_text.txt
 VOCAB_FILE=vocab.txt
 COOCCURRENCE_FILE=cooccurrence.bin
 COOCCURRENCE_SHUF_FILE=cooccurrence.shuf.bin
 BUILDDIR=build
-SAVE_FILE=../codes_vectors
+SAVE_FILE=../summaries_vectors
 VERBOSE=2
 MEMORY=4.0
 VOCAB_MIN_COUNT=5

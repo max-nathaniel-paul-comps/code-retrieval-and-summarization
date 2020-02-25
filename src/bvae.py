@@ -18,7 +18,7 @@ def preg_loss(dists_a, dists_b):
 
 def dists_means(dists_a, dists_b):
     mean_mean = (dists_a.mean() + dists_b.mean()) / 2
-    mean_stddev = (dists_a.stddev() + dists_b.stddev())
+    mean_stddev = (dists_a.stddev() + dists_b.stddev()) / 2
     mean_dists = tfp.distributions.Normal(mean_mean, mean_stddev)
     return mean_dists
 
@@ -30,8 +30,7 @@ def mpreg_loss(dists, mean_dist):
             mean_dist
         )
     )
-    logged_kld = tf.math.log(kl_divergence + 1)
-    return logged_kld
+    return kl_divergence
 
 
 class BimodalVariationalAutoEncoder(tf.keras.Model):
@@ -56,12 +55,12 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
     def call(self, inputs, training=None, mask=None):
         language_batch = inputs[0]
         source_code_batch = inputs[1]
-        enc_language_dists = self.language_encoder(language_batch)
-        enc_source_code_dists = self.source_code_encoder(source_code_batch)
+        enc_language_dists = self.language_encoder(language_batch, training=training)
+        enc_source_code_dists = self.source_code_encoder(source_code_batch, training=training)
         enc_language = enc_language_dists.sample()
         enc_source_code = enc_source_code_dists.sample()
-        dec_language = self.language_decoder(enc_language)
-        dec_source_code = self.source_code_decoder(enc_source_code)
+        dec_language = self.language_decoder(enc_language, training=training)
+        dec_source_code = self.source_code_decoder(enc_source_code, training=training)
         self.compute_and_add_loss(language_batch, source_code_batch, enc_source_code_dists, enc_language_dists,
                                   dec_language, dec_source_code)
         return dec_language, dec_source_code
@@ -86,11 +85,11 @@ def main():
     val_codes = tokenized_texts_to_tensor(val_codes, code_wv, max_len)
     test_codes = tokenized_texts_to_tensor(test_codes, code_wv, max_len)
 
-    latent_dim = 128
+    latent_dim = 192
     model = BimodalVariationalAutoEncoder(train_summaries.shape[1], train_codes.shape[1], latent_dim, wv_size)
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001))
 
-    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=6,
+    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=36,
                         validation_data=((val_summaries, val_codes), None))
 
     plt.plot(history.history['loss'])
@@ -102,6 +101,7 @@ def main():
     plt.show()
 
     for _ in range(20):
+        print()
         random.seed()
         random_idx = random.randrange(test_summaries.shape[0])
         rand_test_summary = np.array([test_summaries[random_idx]])
@@ -113,10 +113,11 @@ def main():
         rec_code = model.source_code_decoder(model.source_code_encoder(rand_test_code).mean()).numpy()
         print("(Test Set) Reconstructed Source Code: ", tensor_to_tokenized_texts(rec_code, code_wv)[0])
         rec_summary_hard = model.language_decoder(model.source_code_encoder(rand_test_code).mean()).numpy()
-        print("(Test Set) Reconstructed Summary From Source Code: ", tensor_to_tokenized_texts(rec_summary_hard, language_wv)[0])
+        print("(Test Set) Reconstructed Summary From Source Code: ", tensor_to_tokenized_texts(rec_summary_hard,
+                                                                                               language_wv)[0])
         rec_code_hard = model.source_code_decoder(model.language_encoder(rand_test_summary).mean()).numpy()
-        print("(Test Set) Reconstructed Source Code From Summary: ", tensor_to_tokenized_texts(rec_code_hard, code_wv)[0])
-        print()
+        print("(Test Set) Reconstructed Source Code From Summary: ", tensor_to_tokenized_texts(rec_code_hard,
+                                                                                               code_wv)[0])
 
 
 if __name__ == "__main__":
