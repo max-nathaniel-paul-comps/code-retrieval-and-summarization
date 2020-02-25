@@ -26,6 +26,31 @@ def termFrequency(term, doc, scheme):
     else:
         print("ERROR: Invalid scheme")
         return None
+
+def termFrequency_pt(term, doc_pt, scheme):
+    #pt=pre-tokenized
+    #Simple count
+    termCount = countInDoc(term, doc_pt)
+    if scheme==0:
+        return termCount
+    #Boolean frequency
+    elif scheme==1:
+        if termCount > 0:
+            return 1
+        else:
+            return 0
+    #Adjusted for document length
+    elif scheme==2:
+        return termCount/len(words)
+    #logarithmically scaled freq
+    elif scheme==3:
+        return math.log(1 + termCount)
+    #augmented frequency, raw freq divided by freq of most occurring term
+    elif scheme==4:
+        return 0.5 + (0.5 * (termCount/(countHighestFreq(doc_pt))))
+    else:
+        print("ERROR: Invalid scheme")
+        return None
         
 
 def countInDoc(word, docWords):
@@ -50,8 +75,20 @@ def inverseDocFrequency(term, docs):
             denom += 1
     return N/denom
 
+def inverseDocFrequency_pt(term, docs):
+    N = len(docs)
+    denom = 1
+    for d in docs:
+        if countInDoc(term, d) > 0:
+            denom += 1
+    return N/denom
+
 def tfidf(term, doc, docs, scheme):
     return termFrequency(term, doc, scheme) * inverseDocFrequency(term, docs)
+
+def tfidf_pt(term, doc, docs, scheme):
+    #so this assumes that doc and each d in docs area already token lists
+    return termFrequency_pt(term, doc, scheme) * inverseDocFrequency_pt(term, docs)
 
 if __name__=="__main__":
     print("TFIDF test stuff running")
