@@ -1,8 +1,16 @@
-import gensim
+import tensorflow as tf
+import tensorflow_probability as tfp
 import random
 import matplotlib.pyplot as plt
-from vae import *
 from text_data_utils import *
+
+
+def recon_loss(true, pred):
+    mask = tf.reduce_all(tf.logical_not(tf.equal(true, 0.0)), axis=-1)
+    recon_tensor = tf.losses.cosine_similarity(true, pred) + 1
+    recon_masked = tf.where(mask, x=recon_tensor, y=0.0)
+    recon = tf.reduce_sum(recon_masked) / tf.reduce_sum(tf.cast(mask, 'float32'))
+    return recon
 
 
 def preg_loss(dists_a, dists_b):
@@ -31,6 +39,49 @@ def mpreg_loss(dists, mean_dist):
         )
     )
     return kl_divergence
+
+
+class VariationalEncoder(tf.keras.models.Sequential):
+    def __init__(self, input_dim, latent_dim, wv_size, input_dropout=0.05, name='variational_encoder'):
+        hidden_1_dim = int(input_dim * wv_size - (input_dim * wv_size - latent_dim) / 2)
+        hidden_2_dim = int(hidden_1_dim - (hidden_1_dim - latent_dim) / 2)
+        super(VariationalEncoder, self).__init__(
+            [
+                tf.keras.layers.Input(shape=(input_dim, wv_size)),
+                tf.keras.layers.Dropout(input_dropout),
+                tf.keras.layers.Flatten(),
+                tf.keras.layers.Dense(hidden_1_dim),
+                tf.keras.layers.LeakyReLU(),
+                tf.keras.layers.Dense(hidden_2_dim),
+                tf.keras.layers.LeakyReLU(),
+                tf.keras.layers.Dense(latent_dim * 2)
+            ],
+            name=name
+        )
+        self.latent_dim = latent_dim
+
+    def call(self, x, training=None, **kwargs):
+        dist = super(VariationalEncoder, self).call(x, training=training, **kwargs)
+        mean = dist[:, :self.latent_dim]
+        stddev = tf.math.abs(dist[:, self.latent_dim:])
+        return tfp.distributions.Normal(mean, stddev)
+
+
+class Decoder(tf.keras.models.Sequential):
+    def __init__(self, latent_dim, reconstructed_dim, wv_size, name='decoder'):
+        hidden_1_dim = int(reconstructed_dim * wv_size - (reconstructed_dim * wv_size - latent_dim) / 2)
+        hidden_2_dim = int(hidden_1_dim - (hidden_1_dim - latent_dim) / 2)
+        super(Decoder, self).__init__(
+            [
+                tf.keras.layers.Dense(hidden_2_dim, input_dim=latent_dim),
+                tf.keras.layers.LeakyReLU(),
+                tf.keras.layers.Dense(hidden_1_dim),
+                tf.keras.layers.LeakyReLU(),
+                tf.keras.layers.Dense(reconstructed_dim * wv_size),
+                tf.keras.layers.Reshape((reconstructed_dim, wv_size))
+            ],
+            name=name
+        )
 
 
 class BimodalVariationalAutoEncoder(tf.keras.Model):
@@ -72,7 +123,7 @@ def main():
     assert language_wv.vector_size == code_wv.vector_size
     wv_size = language_wv.vector_size
 
-    max_len = 100
+    max_len = 200
     train_summaries, train_codes = load_iyer_file("../data/iyer_csharp/train.txt", max_len=max_len)
     val_summaries, val_codes = load_iyer_file("../data/iyer_csharp/valid.txt", max_len=max_len)
     test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt", max_len=max_len)
@@ -85,7 +136,7 @@ def main():
     val_codes = tokenized_texts_to_tensor(val_codes, code_wv, max_len)
     test_codes = tokenized_texts_to_tensor(test_codes, code_wv, max_len)
 
-    latent_dim = 192
+    latent_dim = 128
     model = BimodalVariationalAutoEncoder(train_summaries.shape[1], train_codes.shape[1], latent_dim, wv_size)
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001))
 

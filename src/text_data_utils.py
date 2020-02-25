@@ -9,7 +9,8 @@ def preprocess_language(language: str) -> str:
 
 
 def preprocess_source_code(source_code: str) -> str:
-    return source_code.replace('\\n', '')
+    source_code_no_comments = re.sub(r'(?<!:)(//.*?\\n)', '', source_code)
+    return source_code_no_comments.replace('\\n', '')
 
 
 def tokenize_text(text: str) -> List[str]:
