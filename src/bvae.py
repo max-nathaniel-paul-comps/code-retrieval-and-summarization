@@ -120,15 +120,10 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
 
 
 def main():
-    language_wv = gensim.models.KeyedVectors.load_word2vec_format("../data/embeddings/w2v_format_summaries_vectors.txt")
-    code_wv = gensim.models.KeyedVectors.load_word2vec_format("../data/embeddings/w2v_format_codes_vectors.txt")
-    assert language_wv.vector_size == code_wv.vector_size
-    wv_size = language_wv.vector_size
-
     max_len = 50
-    train_summaries, train_codes = load_iyer_file("../data/iyer_csharp/train.txt", max_len=max_len)
-    val_summaries, val_codes = load_iyer_file("../data/iyer_csharp/valid.txt", max_len=max_len)
-    test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt", max_len=max_len)
+    wv_size = 128
+    language_wv, code_wv, train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes = \
+        load_csv_dataset_with_w2v("../data2/processeed_data2.csv", max_len, wv_size)
 
     train_summaries = tokenized_texts_to_tensor(train_summaries, language_wv, max_len)
     val_summaries = tokenized_texts_to_tensor(val_summaries, language_wv, max_len)
@@ -138,16 +133,16 @@ def main():
     val_codes = tokenized_texts_to_tensor(val_codes, code_wv, max_len)
     test_codes = tokenized_texts_to_tensor(test_codes, code_wv, max_len)
 
-    latent_dim = 128
+    latent_dim = 256
     model = BimodalVariationalAutoEncoder(train_summaries.shape[1], train_codes.shape[1], latent_dim, wv_size)
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=True)
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001))
 
-    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=36,
+    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=9,
                         validation_data=((val_summaries, val_codes), None))
 
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
-    plt.title('model loss (mpreg)')
+    plt.title('model loss (mpreg) latent_dim=' + str(latent_dim))
     plt.ylabel('loss')
     plt.xlabel('epoch')
     plt.legend(['train', 'val'], loc='upper left')

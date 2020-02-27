@@ -1,21 +1,75 @@
 import re
 import numpy as np
 import gensim
+import csv
+import html
 from typing import Tuple, List
 
 
 def preprocess_language(language: str) -> str:
-    return language.lower().replace('\\n', '')
+    language = language.lower()
+    language = language.replace('\n', '')
+    language = html.unescape(language)
+    return language
 
 
 def preprocess_source_code(source_code: str) -> str:
-    source_code_no_comments = re.sub(r'(?<!:)(//.*?\\n)', '', source_code)
-    return source_code_no_comments.replace('\\n', '')
+    source_code = re.sub(r'(?<![:\"])(//.*?\n)', '', source_code)
+    source_code = source_code.replace('\n', '')
+    source_code = html.unescape(source_code)
+    return source_code
 
 
 def tokenize_text(text: str) -> List[str]:
     words_re = re.compile(r'(\w+|[^\w\s])')
     return ['<s>'] + words_re.findall(text) + ['</s>']
+
+
+def trim_to_len(summaries, codes, max_len):
+    assert len(summaries) == len(codes)
+    trimmed_summaries = []
+    trimmed_codes = []
+    for i in range(len(summaries)):
+        if len(summaries[i]) <= max_len and len(codes[i]) <= max_len:
+            trimmed_summaries.append(summaries[i])
+            trimmed_codes.append(codes[i])
+    return trimmed_summaries, trimmed_codes
+
+
+def load_csv_dataset_with_w2v(csv_filename: str, max_len, wv_size):
+    file = open(csv_filename, encoding='UTF8')
+    reader = csv.reader(file)
+    summaries = []
+    codes = []
+    reader.__next__()
+    for row in reader:
+        summary = row[0]
+        summary = preprocess_language(summary)
+        code = row[1]
+        code = preprocess_source_code(code)
+        summary = tokenize_text(summary)
+        code = tokenize_text(code)
+        summaries.append(summary)
+        codes.append(code)
+    assert len(summaries) == len(codes)
+    val_point = int(len(summaries) * 0.8)
+    test_point = int(len(summaries) * 0.9)
+    train_summaries = summaries[:val_point]
+    train_codes = codes[:val_point]
+    val_summaries = summaries[val_point:test_point]
+    val_codes = codes[val_point:test_point]
+    test_summaries = summaries[test_point:]
+    test_codes = codes[test_point:]
+
+    summaries_wv = gensim.models.Word2Vec(train_summaries, size=wv_size).wv
+    codes_wv = gensim.models.Word2Vec(train_codes, size=wv_size).wv
+
+    train_summaries_trimmed, train_codes_trimmed = trim_to_len(train_summaries, train_codes, max_len)
+    val_summaries_trimmed, val_codes_trimmed = trim_to_len(val_summaries, val_codes, max_len)
+    test_summaries_trimmed, test_codes_trimmed = trim_to_len(test_summaries, test_codes, max_len)
+
+    return summaries_wv, codes_wv, train_summaries_trimmed, train_codes_trimmed, val_summaries_trimmed, \
+           val_codes_trimmed, test_summaries_trimmed, test_codes_trimmed
 
 
 def load_iyer_file(filename: str, max_len: int = 0) -> Tuple[List[List[str]], List[List[str]]]:

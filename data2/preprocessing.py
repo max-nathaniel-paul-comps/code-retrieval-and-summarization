@@ -3,7 +3,7 @@ import csv
 
 file = open('data2.csv', encoding='UTF8')
 reader = csv.reader(file)
-newfile = open('processeed_data2.csv', 'w', encoding='UTF8')
+newfile = open('processeed_data2.csv', 'w', encoding='UTF8', newline='')
 writer = csv.writer(newfile)
 rows = 0
 for row in reader:
