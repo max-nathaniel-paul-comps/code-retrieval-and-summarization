@@ -125,6 +125,9 @@ def main():
     language_wv, code_wv, train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes = \
         load_csv_dataset_with_w2v("../data2/processeed_data2.csv", max_len, wv_size)
 
+    language_wv.save_word2vec_format("language_wv")
+    code_wv.save_word2vec_format("code_wv")
+
     train_summaries = tokenized_texts_to_tensor(train_summaries, language_wv, max_len)
     val_summaries = tokenized_texts_to_tensor(val_summaries, language_wv, max_len)
     test_summaries = tokenized_texts_to_tensor(test_summaries, language_wv, max_len)
