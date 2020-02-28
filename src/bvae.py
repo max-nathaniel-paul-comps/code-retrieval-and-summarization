@@ -1,7 +1,8 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 import random
-import matplotlib.pyplot as plt
+import os
+import json
 from text_data_utils import *
 
 
@@ -120,57 +121,31 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
 
 
 def main():
-    max_len = 80
-    wv_size = 256
-    language_wv, code_wv, train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes = \
-        load_csv_dataset_with_w2v("../data2/processeed_data2.csv", max_len, wv_size)
+    if not os.path.isdir("saved_model"):
+        print("Error: Saved model does not exist. Create it with train_model.py")
+        quit(-1)
 
-    language_wv.save_word2vec_format("language_wv")
-    code_wv.save_word2vec_format("code_wv")
+    language_wv = gensim.models.KeyedVectors.load("saved_model/language_wv.txt")
+    code_wv = gensim.models.KeyedVectors.load("saved_model/code_wv.txt")
 
-    train_summaries = tokenized_texts_to_tensor(train_summaries, language_wv, max_len)
-    val_summaries = tokenized_texts_to_tensor(val_summaries, language_wv, max_len)
-    test_summaries = tokenized_texts_to_tensor(test_summaries, language_wv, max_len)
+    with open("saved_model/model_description.json", 'r') as json_file:
+        model_description = json.load(json_file)
 
-    train_codes = tokenized_texts_to_tensor(train_codes, code_wv, max_len)
-    val_codes = tokenized_texts_to_tensor(val_codes, code_wv, max_len)
-    test_codes = tokenized_texts_to_tensor(test_codes, code_wv, max_len)
+    model = BimodalVariationalAutoEncoder(model_description['language_dim'], model_description['source_code_dim'],
+                                          model_description['latent_dim'], model_description['wv_size'])
+    model.compile(optimizer=tf.keras.optimizers.Adam())
+    model.load_weights("saved_model/model_weights")
 
-    latent_dim = 256
-    model = BimodalVariationalAutoEncoder(train_summaries.shape[1], train_codes.shape[1], latent_dim, wv_size)
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001))
-
-    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=60,
-                        validation_data=((val_summaries, val_codes), None))
-
-    model.save_weights("modelweights")
-
-    plt.plot(history.history['loss'])
-    plt.plot(history.history['val_loss'])
-    plt.title('model loss (mpreg) latent_dim=' + str(latent_dim))
-    plt.ylabel('loss')
-    plt.xlabel('epoch')
-    plt.legend(['train', 'val'], loc='upper left')
-    plt.show()
-
-    for _ in range(20):
-        print()
-        random.seed()
-        random_idx = random.randrange(test_summaries.shape[0])
-        rand_test_summary = np.array([test_summaries[random_idx]])
-        print("(Test Set) Input Summary: ", tensor_to_tokenized_texts(rand_test_summary, language_wv)[0])
-        rand_test_code = np.array([test_codes[random_idx]])
-        print("(Test Set) Input Code: ", tensor_to_tokenized_texts(rand_test_code, code_wv)[0])
-        rec_summary = model.language_decoder(model.language_encoder(rand_test_summary).mean()).numpy()
-        print("(Test Set) Reconstructed Summary: ", tensor_to_tokenized_texts(rec_summary, language_wv)[0])
-        rec_code = model.source_code_decoder(model.source_code_encoder(rand_test_code).mean()).numpy()
-        print("(Test Set) Reconstructed Source Code: ", tensor_to_tokenized_texts(rec_code, code_wv)[0])
-        rec_summary_hard = model.language_decoder(model.source_code_encoder(rand_test_code).mean()).numpy()
-        print("(Test Set) Reconstructed Summary From Source Code: ", tensor_to_tokenized_texts(rec_summary_hard,
-                                                                                               language_wv)[0])
-        rec_code_hard = model.source_code_decoder(model.language_encoder(rand_test_summary).mean()).numpy()
-        print("(Test Set) Reconstructed Source Code From Summary: ", tensor_to_tokenized_texts(rec_code_hard,
-                                                                                               code_wv)[0])
+    while True:
+        summary = input("Input Summary: ")
+        if summary == "exit":
+            quit(0)
+        summary = tokenize_text(summary)
+        summary = tokenized_texts_to_tensor([summary], language_wv, model_description['language_dim'])
+        latent = model.language_encoder(summary).mean()
+        source_code = model.source_code_decoder(latent).numpy()
+        source_code = tensor_to_tokenized_texts(source_code, code_wv)[0]
+        print("Generated Source Code: ", source_code)
 
 
 if __name__ == "__main__":
