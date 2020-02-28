@@ -33,10 +33,14 @@ def main():
         json.dump(model_description, json_file)
 
     model = BimodalVariationalAutoEncoder(language_dim, source_code_dim, latent_dim, wv_size, input_dropout=0.2)
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001))
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0005))
 
-    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=6,
-                        validation_data=((val_summaries, val_codes), None))
+    reduce_on_plateau = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3)
+    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
+
+    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=30,
+                        validation_data=((val_summaries, val_codes), None),
+                        callbacks=[reduce_on_plateau, early_stopping])
 
     model.save_weights("saved_model/model_weights")
 

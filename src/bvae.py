@@ -121,7 +121,7 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
 
 
 def main():
-    if not os.path.isdir("saved_model"):
+    if not os.path.isfile("saved_model/model_description.json"):
         print("Error: Saved model does not exist. Create it with train_model.py")
         quit(-1)
 
