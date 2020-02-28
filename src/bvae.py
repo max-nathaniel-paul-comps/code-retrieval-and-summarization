@@ -120,8 +120,8 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
 
 
 def main():
-    max_len = 50
-    wv_size = 128
+    max_len = 80
+    wv_size = 256
     language_wv, code_wv, train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes = \
         load_csv_dataset_with_w2v("../data2/processeed_data2.csv", max_len, wv_size)
 
@@ -135,10 +135,12 @@ def main():
 
     latent_dim = 256
     model = BimodalVariationalAutoEncoder(train_summaries.shape[1], train_codes.shape[1], latent_dim, wv_size)
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001))
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001))
 
-    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=9,
+    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=60,
                         validation_data=((val_summaries, val_codes), None))
+
+    model.save_weights("modelweights")
 
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
