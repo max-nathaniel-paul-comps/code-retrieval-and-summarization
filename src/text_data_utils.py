@@ -6,17 +6,32 @@ import html
 from typing import Tuple, List
 
 
+def remove_excess_whitespace(text: str) -> str:
+    text = text.strip()
+    text = re.sub(r'(\s\s+)', ' ', text)
+    return text
+
+
 def preprocess_language(language: str) -> str:
     language = language.lower()
-    language = language.replace('\n', '')
+    language = language.replace('\n', ' ')
     language = html.unescape(language)
+    if language[-1] == '?':
+        language = language[:-1]
+    for opener in ['how do I ', 'how do you ', 'how can I ', 'how to ', 'best way to ', 'can i ',
+                   'is there a way to ', 'easiest way to ', 'best implementation for ',
+                   'best implementation of ', 'what is the best way to ']:
+        if language.startswith(opener):
+            language = language[len(opener):]
+    language = remove_excess_whitespace(language)
     return language
 
 
 def preprocess_source_code(source_code: str) -> str:
-    source_code = re.sub(r'(?<![:\"])(//.*?\n)', '', source_code)
-    source_code = source_code.replace('\n', '')
+    source_code = re.sub(r'(?<![:\"])(//.*?\n)', ' ', source_code)
+    source_code = source_code.replace('\n', ' ')
     source_code = html.unescape(source_code)
+    source_code = remove_excess_whitespace(source_code)
     return source_code
 
 

@@ -144,7 +144,7 @@ def main():
         summary = input("Input Summary: ")
         if summary == "exit":
             quit(0)
-        summary = tokenize_text(summary.lower())
+        summary = tokenize_text(preprocess_language(summary))
         summary = tokenized_texts_to_tensor([summary], language_wv, model_description['language_dim'])
         latent = model.language_encoder(summary).mean()
         source_code = model.source_code_decoder(latent).numpy()

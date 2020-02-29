@@ -12,7 +12,7 @@ def main():
     code_wv = gensim.models.Word2Vec(train_codes, size=source_code_wv_size).wv
 
     language_dim = 39
-    source_code_dim = 40
+    source_code_dim = 50
 
     train_summaries, train_codes = trim_to_len(train_summaries, train_codes, language_dim, source_code_dim)
     val_summaries, val_codes = trim_to_len(val_summaries, val_codes, language_dim, source_code_dim)

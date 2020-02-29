@@ -1,4 +1,7 @@
 import csv
+import sys
+sys.path.append("../src")
+from text_data_utils import *
 
 
 file = open('data2.csv', encoding='UTF8')
@@ -14,13 +17,10 @@ for row in reader:
     # if rows>20:
     #     break
     title = row[0]
-    if title[-1] == '?':
-        title = title[:-1]
-    for opener in ['How do I', 'How do you', 'How can I', 'How to', 'Can I']:
-        if title.startswith(opener):
-            title = title[len(opener):]
+    title = preprocess_language(title)
     answer = row[1]
     code = answer[answer.find('<code>')+6:answer.find('</code>')]
+    code = preprocess_source_code(code)
     if len(code) > 30 and len(code) < 400:
         writer.writerow([title,code])
         rows +=1
