@@ -1,6 +1,5 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
-import random
 import os
 import json
 from text_data_utils import *
@@ -86,14 +85,15 @@ class Decoder(tf.keras.models.Sequential):
 
 
 class BimodalVariationalAutoEncoder(tf.keras.Model):
-    def __init__(self, language_dim, source_code_dim, latent_dim, wv_size, input_dropout=0.05, name='bvae'):
+    def __init__(self, language_dim, language_wv_size, source_code_dim, source_code_wv_size, latent_dim,
+                 input_dropout=0.05, name='bvae'):
         super(BimodalVariationalAutoEncoder, self).__init__(name=name)
-        self.language_encoder = VariationalEncoder(language_dim, latent_dim, wv_size, input_dropout=input_dropout,
-                                                   name='language_encoder')
-        self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, wv_size, input_dropout=input_dropout,
-                                                      name='source_code_encoder')
-        self.language_decoder = Decoder(latent_dim, language_dim, wv_size, name='language_decoder')
-        self.source_code_decoder = Decoder(latent_dim, source_code_dim, wv_size, name='source_code_decoder')
+        self.language_encoder = VariationalEncoder(language_dim, latent_dim, language_wv_size,
+                                                   input_dropout=input_dropout, name='language_encoder')
+        self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, source_code_wv_size,
+                                                      input_dropout=input_dropout, name='source_code_encoder')
+        self.language_decoder = Decoder(latent_dim, language_dim, language_wv_size, name='language_decoder')
+        self.source_code_decoder = Decoder(latent_dim, source_code_dim, source_code_wv_size, name='source_code_decoder')
 
     def compute_and_add_loss(self, language_batch, source_code_batch, enc_source_code_dists, enc_language_dists,
                              dec_language, dec_source_code):
@@ -131,8 +131,12 @@ def main():
     with open("saved_model/model_description.json", 'r') as json_file:
         model_description = json.load(json_file)
 
-    model = BimodalVariationalAutoEncoder(model_description['language_dim'], model_description['source_code_dim'],
-                                          model_description['latent_dim'], model_description['wv_size'])
+    model = BimodalVariationalAutoEncoder(model_description['language_dim'],
+                                          model_description['language_wv_size'],
+                                          model_description['source_code_dim'],
+                                          model_description['source_code_wv_size'],
+                                          model_description['latent_dim'])
+
     model.compile(optimizer=tf.keras.optimizers.Adam())
     model.load_weights("saved_model/model_weights")
 
@@ -140,7 +144,7 @@ def main():
         summary = input("Input Summary: ")
         if summary == "exit":
             quit(0)
-        summary = tokenize_text(summary)
+        summary = tokenize_text(summary.lower())
         summary = tokenized_texts_to_tensor([summary], language_wv, model_description['language_dim'])
         latent = model.language_encoder(summary).mean()
         source_code = model.source_code_decoder(latent).numpy()

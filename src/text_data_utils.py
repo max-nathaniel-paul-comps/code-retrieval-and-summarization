@@ -25,18 +25,18 @@ def tokenize_text(text: str) -> List[str]:
     return ['<s>'] + words_re.findall(text) + ['</s>']
 
 
-def trim_to_len(summaries, codes, max_len):
+def trim_to_len(summaries, codes, max_summary_len, max_source_code_len):
     assert len(summaries) == len(codes)
     trimmed_summaries = []
     trimmed_codes = []
     for i in range(len(summaries)):
-        if len(summaries[i]) <= max_len and len(codes[i]) <= max_len:
+        if len(summaries[i]) <= max_summary_len and len(codes[i]) <= max_source_code_len:
             trimmed_summaries.append(summaries[i])
             trimmed_codes.append(codes[i])
     return trimmed_summaries, trimmed_codes
 
 
-def load_csv_dataset_with_w2v(csv_filename: str, max_len, wv_size):
+def load_csv_dataset(csv_filename: str):
     file = open(csv_filename, encoding='UTF8')
     reader = csv.reader(file)
     summaries = []
@@ -60,16 +60,7 @@ def load_csv_dataset_with_w2v(csv_filename: str, max_len, wv_size):
     val_codes = codes[val_point:test_point]
     test_summaries = summaries[test_point:]
     test_codes = codes[test_point:]
-
-    summaries_wv = gensim.models.Word2Vec(train_summaries, size=wv_size).wv
-    codes_wv = gensim.models.Word2Vec(train_codes, size=wv_size).wv
-
-    train_summaries_trimmed, train_codes_trimmed = trim_to_len(train_summaries, train_codes, max_len)
-    val_summaries_trimmed, val_codes_trimmed = trim_to_len(val_summaries, val_codes, max_len)
-    test_summaries_trimmed, test_codes_trimmed = trim_to_len(test_summaries, test_codes, max_len)
-
-    return summaries_wv, codes_wv, train_summaries_trimmed, train_codes_trimmed, val_summaries_trimmed, \
-           val_codes_trimmed, test_summaries_trimmed, test_codes_trimmed
+    return train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
 
 
 def load_iyer_file(filename: str, max_len: int = 0) -> Tuple[List[List[str]], List[List[str]]]:
