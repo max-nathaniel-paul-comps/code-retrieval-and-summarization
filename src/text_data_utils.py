@@ -16,14 +16,14 @@ def preprocess_language(language: str) -> str:
     language = language.lower()
     language = language.replace('\n', ' ')
     language = html.unescape(language)
+    language = remove_excess_whitespace(language)
     if language[-1] == '?':
         language = language[:-1]
-    for opener in ['how do I ', 'how do you ', 'how can I ', 'how to ', 'best way to ', 'can i ',
+    for opener in ['how do i ', 'how do you ', 'how can i ', 'how to ', 'best way to ', 'can i ',
                    'is there a way to ', 'easiest way to ', 'best implementation for ',
-                   'best implementation of ', 'what is the best way to ']:
+                   'best implementation of ', 'what is the best way to ', 'what is the proper way to ']:
         if language.startswith(opener):
             language = language[len(opener):]
-    language = remove_excess_whitespace(language)
     return language
 
 
