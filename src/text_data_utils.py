@@ -52,12 +52,12 @@ def trim_to_len(summaries, codes, max_summary_len, max_source_code_len):
 
 
 def load_edinburgh_dataset(path: str):
-    train_summaries = tokenize_texts(open(path + "/data_ps.descriptions.train.txt", encoding='ansi').readlines())
-    train_codes = tokenize_texts(open(path + "/data_ps.bodies.train.txt", encoding='ansi').readlines())
-    val_summaries = tokenize_texts(open(path + "/data_ps.descriptions.valid.txt", encoding='ansi').readlines())
-    val_codes = tokenize_texts(open(path + "/data_ps.bodies.valid.txt", encoding='ansi').readlines())
-    test_summaries = tokenize_texts(open(path + "/data_ps.descriptions.test.txt", encoding='ansi').readlines())
-    test_codes = tokenize_texts(open(path + "/data_ps.bodies.test.txt", encoding='ansi').readlines())
+    train_summaries = tokenize_texts(open(path + "/data_ps.descriptions.train.txt", encoding='utf-8', errors='ignore').readlines())
+    train_codes = tokenize_texts(open(path + "/data_ps.bodies.train.txt", encoding='utf-8', errors='ignore').readlines())
+    val_summaries = tokenize_texts(open(path + "/data_ps.descriptions.valid.txt", encoding='utf-8', errors='ignore').readlines())
+    val_codes = tokenize_texts(open(path + "/data_ps.bodies.valid.txt", encoding='utf-8', errors='ignore').readlines())
+    test_summaries = tokenize_texts(open(path + "/data_ps.descriptions.test.txt", encoding='utf-8', errors='ignore').readlines())
+    test_codes = tokenize_texts(open(path + "/data_ps.bodies.test.txt", encoding='utf-8', errors='ignore').readlines())
     return train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
 
 

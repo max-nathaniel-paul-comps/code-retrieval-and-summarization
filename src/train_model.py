@@ -4,7 +4,7 @@ from bvae import *
 
 def main():
     train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes = \
-        load_edinburgh_dataset("../data/edinburgh_python")
+        load_csv_dataset("../data2/processeed_data2.csv")
 
     language_wv_size = 128
     source_code_wv_size = 128
@@ -31,10 +31,10 @@ def main():
     model = BimodalVariationalAutoEncoder(language_dim, language_wv_size, source_code_dim, source_code_wv_size,
                                           latent_dim, input_dropout=0.2)
 
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0005))
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001))
 
-    reduce_on_plateau = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3)
-    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
+    reduce_on_plateau = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=0)
+    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=20)
 
     history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=30,
                         validation_data=((val_summaries, val_codes), None),

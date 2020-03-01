@@ -84,6 +84,19 @@ class Decoder(tf.keras.models.Sequential):
         )
 
 
+class RecurrentDecoder(tf.keras.models.Sequential):
+    def __init__(self, latent_dim, reconstructed_dim, wv_size, name='recurrent_decoder'):
+        super(RecurrentDecoder, self).__init__(
+            [
+                tf.keras.layers.RepeatVector(reconstructed_dim),
+                tf.keras.layers.GRU(latent_dim, return_sequences=True),
+                tf.keras.layers.GRU(wv_size, return_sequences=True),
+                tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(wv_size))
+            ],
+            name=name
+        )
+
+
 class BimodalVariationalAutoEncoder(tf.keras.Model):
     def __init__(self, language_dim, language_wv_size, source_code_dim, source_code_wv_size, latent_dim,
                  input_dropout=0.05, name='bvae'):
@@ -92,7 +105,7 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
                                                    input_dropout=input_dropout, name='language_encoder')
         self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, source_code_wv_size,
                                                       input_dropout=input_dropout, name='source_code_encoder')
-        self.language_decoder = Decoder(latent_dim, language_dim, language_wv_size, name='language_decoder')
+        self.language_decoder = RecurrentDecoder(latent_dim, language_dim, language_wv_size, name='language_decoder')
         self.source_code_decoder = Decoder(latent_dim, source_code_dim, source_code_wv_size, name='source_code_decoder')
 
     def compute_and_add_loss(self, language_batch, source_code_batch, enc_source_code_dists, enc_language_dists,
