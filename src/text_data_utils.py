@@ -1,12 +1,81 @@
 import re
 import numpy as np
 import gensim
+import csv
+import html
 from typing import Tuple, List
 
 
+def remove_excess_whitespace(text: str) -> str:
+    text = text.strip()
+    text = re.sub(r'(\s\s+)', ' ', text)
+    return text
+
+
+def preprocess_language(language: str) -> str:
+    language = language.lower()
+    language = language.replace('\n', ' ')
+    language = html.unescape(language)
+    language = remove_excess_whitespace(language)
+    if language[-1] == '?':
+        language = language[:-1]
+    for opener in ['how do i ', 'how do you ', 'how can i ', 'how to ', 'best way to ', 'can i ',
+                   'is there a way to ', 'easiest way to ', 'best implementation for ',
+                   'best implementation of ', 'what is the best way to ', 'what is the proper way to ']:
+        if language.startswith(opener):
+            language = language[len(opener):]
+    return language
+
+
+def preprocess_source_code(source_code: str) -> str:
+    source_code = re.sub(r'(?<![:\"])(//.*?\n)', ' ', source_code)
+    source_code = source_code.replace('\n', ' ')
+    source_code = html.unescape(source_code)
+    source_code = remove_excess_whitespace(source_code)
+    return source_code
+
+
 def tokenize_text(text: str) -> List[str]:
-    words_re = re.compile(r'(\w+|[,./?<>!@#$%^&*()_\-+=`~{}|\[\]\\:;\'"])')
+    words_re = re.compile(r'(\w+|[^\w\s])')
     return ['<s>'] + words_re.findall(text) + ['</s>']
+
+
+def trim_to_len(summaries, codes, max_summary_len, max_source_code_len):
+    assert len(summaries) == len(codes)
+    trimmed_summaries = []
+    trimmed_codes = []
+    for i in range(len(summaries)):
+        if len(summaries[i]) <= max_summary_len and len(codes[i]) <= max_source_code_len:
+            trimmed_summaries.append(summaries[i])
+            trimmed_codes.append(codes[i])
+    return trimmed_summaries, trimmed_codes
+
+
+def load_csv_dataset(csv_filename: str):
+    file = open(csv_filename, encoding='UTF8')
+    reader = csv.reader(file)
+    summaries = []
+    codes = []
+    reader.__next__()
+    for row in reader:
+        summary = row[0]
+        summary = preprocess_language(summary)
+        code = row[1]
+        code = preprocess_source_code(code)
+        summary = tokenize_text(summary)
+        code = tokenize_text(code)
+        summaries.append(summary)
+        codes.append(code)
+    assert len(summaries) == len(codes)
+    val_point = int(len(summaries) * 0.8)
+    test_point = int(len(summaries) * 0.9)
+    train_summaries = summaries[:val_point]
+    train_codes = codes[:val_point]
+    val_summaries = summaries[val_point:test_point]
+    val_codes = codes[val_point:test_point]
+    test_summaries = summaries[test_point:]
+    test_codes = codes[test_point:]
+    return train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
 
 
 def load_iyer_file(filename: str, max_len: int = 0) -> Tuple[List[List[str]], List[List[str]]]:
@@ -17,8 +86,8 @@ def load_iyer_file(filename: str, max_len: int = 0) -> Tuple[List[List[str]], Li
         items = line.split('\t')
         if len(items) == 5:
             split_line = line.split('\t')
-            summary = tokenize_text(split_line[2].lower())
-            code = tokenize_text(split_line[3])
+            summary = tokenize_text(preprocess_language(split_line[2]))
+            code = tokenize_text(preprocess_source_code(split_line[3]))
             if max_len == 0 or (len(summary) < max_len and len(code) < max_len):
                 summaries.append(summary)
                 codes.append(code)
@@ -59,7 +128,7 @@ def tensor_to_tokenized_texts(tensor: np.ndarray, wv: gensim.models.KeyedVectors
 
 
 def main():
-    ex_dataset_file = open("../data/iyer/train.txt").readlines()
+    ex_dataset_file = open("../data/iyer_csharp/train.txt").readlines()
     ex_dataset = []
     for line in ex_dataset_file:
         items = line.split('\t')
