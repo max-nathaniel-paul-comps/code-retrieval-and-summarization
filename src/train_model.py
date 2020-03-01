@@ -4,7 +4,7 @@ from bvae import *
 
 def main():
     train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes = \
-        load_csv_dataset("../data2/processeed_data2.csv")
+        load_edinburgh_dataset("../data/edinburgh_python")
 
     language_wv_size = 128
     source_code_wv_size = 128

@@ -51,6 +51,16 @@ def trim_to_len(summaries, codes, max_summary_len, max_source_code_len):
     return trimmed_summaries, trimmed_codes
 
 
+def load_edinburgh_dataset(path: str):
+    train_summaries = tokenize_texts(open(path + "/data_ps.descriptions.train.txt", encoding='ansi').readlines())
+    train_codes = tokenize_texts(open(path + "/data_ps.bodies.train.txt", encoding='ansi').readlines())
+    val_summaries = tokenize_texts(open(path + "/data_ps.descriptions.valid.txt", encoding='ansi').readlines())
+    val_codes = tokenize_texts(open(path + "/data_ps.bodies.valid.txt", encoding='ansi').readlines())
+    test_summaries = tokenize_texts(open(path + "/data_ps.descriptions.test.txt", encoding='ansi').readlines())
+    test_codes = tokenize_texts(open(path + "/data_ps.bodies.test.txt", encoding='ansi').readlines())
+    return train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
+
+
 def load_csv_dataset(csv_filename: str):
     file = open(csv_filename, encoding='UTF8')
     reader = csv.reader(file)
