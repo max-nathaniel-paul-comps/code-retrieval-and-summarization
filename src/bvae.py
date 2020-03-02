@@ -1,15 +1,16 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
+import tensorflow_datasets as tfds
 import os
 import json
 from text_data_utils import *
 
 
 def recon_loss(true, pred):
-    mask = tf.reduce_all(tf.logical_not(tf.equal(true, 0.0)), axis=-1)
-    recon_tensor = tf.losses.cosine_similarity(true, pred) + 1
-    recon_masked = tf.where(mask, x=recon_tensor, y=0.0)
-    recon = tf.reduce_sum(recon_masked) / tf.reduce_sum(tf.cast(mask, 'float32'))
+    mask = tf.logical_not(tf.equal(true, 0))
+    recon_all = tf.keras.losses.sparse_categorical_crossentropy(true, pred)
+    recon_all_masked = tf.where(mask, x=recon_all, y=0.0)
+    recon = tf.reduce_sum(recon_all_masked) / tf.reduce_sum(tf.cast(mask, 'float32'))
     return recon
 
 
@@ -42,12 +43,13 @@ def mpreg_loss(dists, mean_dist):
 
 
 class VariationalEncoder(tf.keras.models.Sequential):
-    def __init__(self, input_dim, latent_dim, wv_size, input_dropout=0.05, name='variational_encoder'):
-        hidden_1_dim = int(input_dim * wv_size - (input_dim * wv_size - latent_dim) / 2)
+    def __init__(self, input_dim, latent_dim, vocab_size, input_dropout=0.05, name='variational_encoder'):
+        embedding_dim = 128
+        hidden_1_dim = int(input_dim * embedding_dim - (input_dim * embedding_dim - latent_dim) / 2)
         hidden_2_dim = int(hidden_1_dim - (hidden_1_dim - latent_dim) / 2)
         super(VariationalEncoder, self).__init__(
             [
-                tf.keras.layers.Input(shape=(input_dim, wv_size)),
+                tf.keras.layers.Embedding(vocab_size, embedding_dim, input_length=input_dim),
                 tf.keras.layers.Dropout(input_dropout, noise_shape=(None, input_dim, 1)),
                 tf.keras.layers.Flatten(),
                 tf.keras.layers.Dense(hidden_1_dim),
@@ -68,8 +70,8 @@ class VariationalEncoder(tf.keras.models.Sequential):
 
 
 class Decoder(tf.keras.models.Sequential):
-    def __init__(self, latent_dim, reconstructed_dim, wv_size, name='decoder'):
-        hidden_1_dim = int(reconstructed_dim * wv_size - (reconstructed_dim * wv_size - latent_dim) / 2)
+    def __init__(self, latent_dim, reconstructed_dim, vocab_size, name='decoder'):
+        hidden_1_dim = int(reconstructed_dim * vocab_size - 3 * (reconstructed_dim * vocab_size - latent_dim) / 4)
         hidden_2_dim = int(hidden_1_dim - (hidden_1_dim - latent_dim) / 2)
         super(Decoder, self).__init__(
             [
@@ -77,36 +79,36 @@ class Decoder(tf.keras.models.Sequential):
                 tf.keras.layers.LeakyReLU(),
                 tf.keras.layers.Dense(hidden_1_dim),
                 tf.keras.layers.LeakyReLU(),
-                tf.keras.layers.Dense(reconstructed_dim * wv_size),
-                tf.keras.layers.Reshape((reconstructed_dim, wv_size))
+                tf.keras.layers.Dense(reconstructed_dim * vocab_size),
+                tf.keras.layers.Reshape((reconstructed_dim, vocab_size))
             ],
             name=name
         )
 
 
 class RecurrentDecoder(tf.keras.models.Sequential):
-    def __init__(self, latent_dim, reconstructed_dim, wv_size, name='recurrent_decoder'):
+    def __init__(self, latent_dim, reconstructed_dim, vocab_size, name='recurrent_decoder'):
         super(RecurrentDecoder, self).__init__(
             [
                 tf.keras.layers.RepeatVector(reconstructed_dim),
                 tf.keras.layers.GRU(latent_dim, return_sequences=True),
-                tf.keras.layers.GRU(wv_size, return_sequences=True),
-                tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(wv_size))
+                tf.keras.layers.GRU(int(latent_dim + (vocab_size - latent_dim) / 4), return_sequences=True),
+                tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(vocab_size, activation='softmax'))
             ],
             name=name
         )
 
 
 class BimodalVariationalAutoEncoder(tf.keras.Model):
-    def __init__(self, language_dim, language_wv_size, source_code_dim, source_code_wv_size, latent_dim,
+    def __init__(self, language_dim, l_sw_vocab_size, source_code_dim, c_sw_vocab_size, latent_dim,
                  input_dropout=0.05, name='bvae'):
         super(BimodalVariationalAutoEncoder, self).__init__(name=name)
-        self.language_encoder = VariationalEncoder(language_dim, latent_dim, language_wv_size,
+        self.language_encoder = VariationalEncoder(language_dim, latent_dim, l_sw_vocab_size,
                                                    input_dropout=input_dropout, name='language_encoder')
-        self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, source_code_wv_size,
+        self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, c_sw_vocab_size,
                                                       input_dropout=input_dropout, name='source_code_encoder')
-        self.language_decoder = RecurrentDecoder(latent_dim, language_dim, language_wv_size, name='language_decoder')
-        self.source_code_decoder = Decoder(latent_dim, source_code_dim, source_code_wv_size, name='source_code_decoder')
+        self.language_decoder = RecurrentDecoder(latent_dim, language_dim, l_sw_vocab_size, name='language_decoder')
+        self.source_code_decoder = RecurrentDecoder(latent_dim, source_code_dim, c_sw_vocab_size, name='source_code_decoder')
 
     def compute_and_add_loss(self, language_batch, source_code_batch, enc_source_code_dists, enc_language_dists,
                              dec_language, dec_source_code):
@@ -138,16 +140,16 @@ def main():
         print("Error: Saved model does not exist. Create it with train_model.py")
         quit(-1)
 
-    language_wv = gensim.models.KeyedVectors.load("saved_model/language_wv.txt")
-    code_wv = gensim.models.KeyedVectors.load("saved_model/code_wv.txt")
-
     with open("saved_model/model_description.json", 'r') as json_file:
         model_description = json.load(json_file)
 
+    language_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file("language_tokenizer")
+    code_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file("code_tokenizer")
+
     model = BimodalVariationalAutoEncoder(model_description['language_dim'],
-                                          model_description['language_wv_size'],
+                                          language_tokenizer.vocab_size,
                                           model_description['source_code_dim'],
-                                          model_description['source_code_wv_size'],
+                                          code_tokenizer.vocab_size,
                                           model_description['latent_dim'])
 
     model.compile(optimizer=tf.keras.optimizers.Adam())
@@ -157,11 +159,11 @@ def main():
         summary = input("Input Summary: ")
         if summary == "exit":
             quit(0)
-        summary = tokenize_text(preprocess_language(summary))
-        summary = tokenized_texts_to_tensor([summary], language_wv, model_description['language_dim'])
+        summary = [language_tokenizer.encode(preprocess_language(summary))]
+        summary = pad_sequences(summary, maxlen=model_description['language_dim'], padding='post', value=0)
         latent = model.language_encoder(summary).mean()
-        source_code = model.source_code_decoder(latent).numpy()
-        source_code = tensor_to_tokenized_texts(source_code, code_wv)[0]
+        source_code = model.source_code_decoder(latent)[0].numpy()
+        source_code = code_tokenizer.decode(np.argmax(source_code, axis=-1))
         print("Generated Source Code: ", source_code)
 
 
