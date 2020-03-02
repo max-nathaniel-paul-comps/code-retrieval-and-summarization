@@ -44,26 +44,24 @@ def mpreg_loss(dists, mean_dist):
 
 class VariationalEncoder(tf.keras.models.Sequential):
     def __init__(self, input_dim, latent_dim, vocab_size, input_dropout=0.05, name='variational_encoder'):
-        embedding_dim = 128
-        hidden_1_dim = int(input_dim * embedding_dim - (input_dim * embedding_dim - latent_dim) / 2)
-        hidden_2_dim = int(hidden_1_dim - (hidden_1_dim - latent_dim) / 2)
         super(VariationalEncoder, self).__init__(
             [
-                tf.keras.layers.Embedding(vocab_size, embedding_dim, input_length=input_dim),
                 tf.keras.layers.Dropout(input_dropout, noise_shape=(None, input_dim, 1)),
                 tf.keras.layers.Flatten(),
-                tf.keras.layers.Dense(hidden_1_dim),
+                tf.keras.layers.Dense(latent_dim * 4),
                 tf.keras.layers.LeakyReLU(),
-                tf.keras.layers.Dense(hidden_2_dim),
+                tf.keras.layers.Dense(latent_dim * 4),
                 tf.keras.layers.LeakyReLU(),
                 tf.keras.layers.Dense(latent_dim * 2)
             ],
             name=name
         )
+        self.vocab_size = vocab_size
         self.latent_dim = latent_dim
 
     def call(self, x, training=None, **kwargs):
-        dist = super(VariationalEncoder, self).call(x, training=training, **kwargs)
+        x_oh = tf.one_hot(x, depth=self.vocab_size)
+        dist = super(VariationalEncoder, self).call(x_oh, training=training, **kwargs)
         mean = dist[:, :self.latent_dim]
         stddev = tf.math.abs(dist[:, self.latent_dim:])
         return tfp.distributions.Normal(mean, stddev)
@@ -71,16 +69,15 @@ class VariationalEncoder(tf.keras.models.Sequential):
 
 class Decoder(tf.keras.models.Sequential):
     def __init__(self, latent_dim, reconstructed_dim, vocab_size, name='decoder'):
-        hidden_1_dim = int(reconstructed_dim * vocab_size - 3 * (reconstructed_dim * vocab_size - latent_dim) / 4)
-        hidden_2_dim = int(hidden_1_dim - (hidden_1_dim - latent_dim) / 2)
         super(Decoder, self).__init__(
             [
-                tf.keras.layers.Dense(hidden_2_dim, input_dim=latent_dim),
+                tf.keras.layers.Dense(latent_dim, input_dim=latent_dim),
                 tf.keras.layers.LeakyReLU(),
-                tf.keras.layers.Dense(hidden_1_dim),
+                tf.keras.layers.Dense(latent_dim),
                 tf.keras.layers.LeakyReLU(),
                 tf.keras.layers.Dense(reconstructed_dim * vocab_size),
-                tf.keras.layers.Reshape((reconstructed_dim, vocab_size))
+                tf.keras.layers.Reshape((reconstructed_dim, vocab_size)),
+                tf.keras.layers.Softmax(axis=-1),
             ],
             name=name
         )
@@ -90,9 +87,9 @@ class RecurrentDecoder(tf.keras.models.Sequential):
     def __init__(self, latent_dim, reconstructed_dim, vocab_size, name='recurrent_decoder'):
         super(RecurrentDecoder, self).__init__(
             [
-                tf.keras.layers.RepeatVector(reconstructed_dim),
+                tf.keras.layers.RepeatVector(reconstructed_dim, input_shape=(latent_dim,)),
                 tf.keras.layers.GRU(latent_dim, return_sequences=True),
-                tf.keras.layers.GRU(int(latent_dim + (vocab_size - latent_dim) / 4), return_sequences=True),
+                tf.keras.layers.GRU(latent_dim, return_sequences=True),
                 tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(vocab_size, activation='softmax'))
             ],
             name=name
@@ -107,8 +104,10 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
                                                    input_dropout=input_dropout, name='language_encoder')
         self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, c_sw_vocab_size,
                                                       input_dropout=input_dropout, name='source_code_encoder')
-        self.language_decoder = RecurrentDecoder(latent_dim, language_dim, l_sw_vocab_size, name='language_decoder')
-        self.source_code_decoder = RecurrentDecoder(latent_dim, source_code_dim, c_sw_vocab_size, name='source_code_decoder')
+        self.language_decoder = RecurrentDecoder(latent_dim, language_dim, l_sw_vocab_size,
+                                                 name='language_decoder')
+        self.source_code_decoder = RecurrentDecoder(latent_dim, source_code_dim, c_sw_vocab_size,
+                                                    name='source_code_decoder')
 
     def compute_and_add_loss(self, language_batch, source_code_batch, enc_source_code_dists, enc_language_dists,
                              dec_language, dec_source_code):

@@ -16,7 +16,7 @@ def main():
     else:
         language_tokenizer = tfds.features.text.SubwordTextEncoder.build_from_corpus(
             (summary for summary in train_summaries),
-            1024, reserved_tokens=['<s>', '</s>'])
+            512, reserved_tokens=['<s>', '</s>'])
         language_tokenizer.save_to_file(language_tokenizer_file)
 
     code_tokenizer_file = "code_tokenizer"
@@ -25,7 +25,7 @@ def main():
     else:
         code_tokenizer = tfds.features.text.SubwordTextEncoder.build_from_corpus(
             (code for code in train_codes),
-            1024, reserved_tokens=['<s>', '</s>'])
+            512, reserved_tokens=['<s>', '</s>'])
         code_tokenizer.save_to_file(code_tokenizer_file)
 
     train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes = subword_encode(
@@ -34,17 +34,18 @@ def main():
     )
 
     latent_dim = 256
+    dropout_rate = 0.5
 
     model = BimodalVariationalAutoEncoder(language_dim, language_tokenizer.vocab_size,
                                           source_code_dim, code_tokenizer.vocab_size,
-                                          latent_dim, input_dropout=0.2)
+                                          latent_dim, input_dropout=dropout_rate)
 
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=False)
 
     reduce_on_plateau = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=0)
-    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=20)
+    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
 
-    history = model.fit((train_summaries, train_codes), None, batch_size=64, epochs=1,
+    history = model.fit((train_summaries, train_codes), None, batch_size=64, epochs=40,
                         validation_data=((val_summaries, val_codes), None),
                         callbacks=[reduce_on_plateau, early_stopping])
 
@@ -60,7 +61,7 @@ def main():
 
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
-    plt.title('model loss (mpreg) latent_dim=' + str(latent_dim))
+    plt.title('model loss bige rec_l_dec rec_c_dec latent_dim=' + str(latent_dim) + ' d=' + str(dropout_rate))
     plt.ylabel('loss')
     plt.xlabel('epoch')
     plt.legend(['train', 'val'], loc='upper left')
