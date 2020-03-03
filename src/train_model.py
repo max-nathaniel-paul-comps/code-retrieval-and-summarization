@@ -3,14 +3,13 @@ import random
 from bvae import *
 
 
-def main():
+def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/edinburgh_python/",
+               language_dim=39, source_code_dim=50):
+
     train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes = \
-        load_csv_dataset("../data2/processeed_data2.csv")
+        load_edinburgh_dataset(dataset_path)
 
-    language_dim = 39
-    source_code_dim = 50
-
-    language_tokenizer_file = "language_tokenizer"
+    language_tokenizer_file = dataset_path + "language_tokenizer"
     if os.path.isfile(language_tokenizer_file + ".subwords"):
         language_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(language_tokenizer_file)
     else:
@@ -19,7 +18,7 @@ def main():
             512, reserved_tokens=['<s>', '</s>'])
         language_tokenizer.save_to_file(language_tokenizer_file)
 
-    code_tokenizer_file = "code_tokenizer"
+    code_tokenizer_file = dataset_path + "code_tokenizer"
     if os.path.isfile(code_tokenizer_file + ".subwords"):
         code_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(code_tokenizer_file)
     else:
@@ -45,7 +44,7 @@ def main():
     reduce_on_plateau = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=0)
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
 
-    history = model.fit((train_summaries, train_codes), None, batch_size=64, epochs=40,
+    history = model.fit((train_summaries, train_codes), None, batch_size=64, epochs=2,
                         validation_data=((val_summaries, val_codes), None),
                         callbacks=[reduce_on_plateau, early_stopping])
 
@@ -54,10 +53,10 @@ def main():
         'source_code_dim': source_code_dim,
         'latent_dim': latent_dim,
     }
-    with open("saved_model/model_description.json", 'w') as json_file:
+    with open(model_save_path + "model_description.json", 'w') as json_file:
         json.dump(model_description, json_file)
 
-    model.save_weights("saved_model/model_weights")
+    model.save_weights(model_save_path + "model_weights")
 
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
@@ -89,4 +88,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    train_bvae()

@@ -14,7 +14,6 @@ def remove_excess_whitespace(text: str) -> str:
 
 
 def preprocess_language(language: str) -> str:
-    language = language.lower()
     language = language.replace('\n', ' ')
     language = html.unescape(language)
     language = remove_excess_whitespace(language)
@@ -23,10 +22,15 @@ def preprocess_language(language: str) -> str:
     for opener in ['how do i ', 'how do you ', 'how can i ', 'how to ', 'best way to ', 'can i ',
                    'is there a way to ', 'easiest way to ', 'best implementation for ',
                    'best implementation of ', 'what is the best way to ', 'what is the proper way to ']:
-        if language.startswith(opener):
+        if language.lower().startswith(opener):
             language = language[len(opener):]
-    language = "<s>" + language + "</s>"
+    if not language.startswith("<s>"):
+        language = "<s>" + language + "</s>"
     return language
+
+
+def batch_proc(lis, fun):
+    return [fun(li) for li in lis]
 
 
 def preprocess_source_code(source_code: str) -> str:
@@ -34,7 +38,8 @@ def preprocess_source_code(source_code: str) -> str:
     source_code = source_code.replace('\n', ' ')
     source_code = html.unescape(source_code)
     source_code = remove_excess_whitespace(source_code)
-    source_code = "<s>" + source_code + "</s>"
+    if not source_code.startswith("<s>"):
+        source_code = "<s>" + source_code + "</s>"
     return source_code
 
 
@@ -57,12 +62,12 @@ def trim_to_len(summaries, codes, max_summary_len, max_source_code_len):
 
 
 def load_edinburgh_dataset(path: str):
-    train_summaries = tokenize_texts(open(path + "/data_ps.descriptions.train.txt", encoding='utf-8', errors='ignore').readlines())
-    train_codes = tokenize_texts(open(path + "/data_ps.bodies.train.txt", encoding='utf-8', errors='ignore').readlines())
-    val_summaries = tokenize_texts(open(path + "/data_ps.descriptions.valid.txt", encoding='utf-8', errors='ignore').readlines())
-    val_codes = tokenize_texts(open(path + "/data_ps.bodies.valid.txt", encoding='utf-8', errors='ignore').readlines())
-    test_summaries = tokenize_texts(open(path + "/data_ps.descriptions.test.txt", encoding='utf-8', errors='ignore').readlines())
-    test_codes = tokenize_texts(open(path + "/data_ps.bodies.test.txt", encoding='utf-8', errors='ignore').readlines())
+    train_summaries = batch_proc(open(path + "/data_ps.descriptions.train.txt", encoding='utf-8', errors='ignore').readlines(), preprocess_language)
+    train_codes = batch_proc(open(path + "/data_ps.bodies.train.txt", encoding='utf-8', errors='ignore').readlines(), preprocess_language)
+    val_summaries = batch_proc(open(path + "/data_ps.descriptions.valid.txt", encoding='utf-8', errors='ignore').readlines(), preprocess_language)
+    val_codes = batch_proc(open(path + "/data_ps.bodies.valid.txt", encoding='utf-8', errors='ignore').readlines(), preprocess_language)
+    test_summaries = batch_proc(open(path + "/data_ps.descriptions.test.txt", encoding='utf-8', errors='ignore').readlines(), preprocess_language)
+    test_codes = batch_proc(open(path + "/data_ps.bodies.test.txt", encoding='utf-8', errors='ignore').readlines(), preprocess_language)
     return train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
 
 

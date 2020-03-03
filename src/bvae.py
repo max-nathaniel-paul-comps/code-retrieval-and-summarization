@@ -8,7 +8,7 @@ from text_data_utils import *
 
 def recon_loss(true, pred):
     mask = tf.logical_not(tf.equal(true, 0))
-    recon_all = tf.keras.losses.sparse_categorical_crossentropy(true, pred)
+    recon_all = tf.keras.losses.sparse_categorical_crossentropy(true, pred, from_logits=True)
     recon_all_masked = tf.where(mask, x=recon_all, y=0.0)
     recon = tf.reduce_sum(recon_all_masked) / tf.reduce_sum(tf.cast(mask, 'float32'))
     return recon
@@ -77,7 +77,6 @@ class Decoder(tf.keras.models.Sequential):
                 tf.keras.layers.LeakyReLU(),
                 tf.keras.layers.Dense(reconstructed_dim * vocab_size),
                 tf.keras.layers.Reshape((reconstructed_dim, vocab_size)),
-                tf.keras.layers.Softmax(axis=-1),
             ],
             name=name
         )
@@ -90,7 +89,7 @@ class RecurrentDecoder(tf.keras.models.Sequential):
                 tf.keras.layers.RepeatVector(reconstructed_dim, input_shape=(latent_dim,)),
                 tf.keras.layers.GRU(latent_dim, return_sequences=True),
                 tf.keras.layers.GRU(latent_dim, return_sequences=True),
-                tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(vocab_size, activation='softmax'))
+                tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(vocab_size))
             ],
             name=name
         )
@@ -134,16 +133,16 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
         return dec_language, dec_source_code
 
 
-def main():
-    if not os.path.isfile("saved_model/model_description.json"):
+def bvae_demo(model_path="../models/saved_model/", tokenizers_path="../data/edinburgh_python/"):
+    if not os.path.isfile(model_path + "model_description.json"):
         print("Error: Saved model does not exist. Create it with train_model.py")
         quit(-1)
 
-    with open("saved_model/model_description.json", 'r') as json_file:
+    with open(model_path + "model_description.json", 'r') as json_file:
         model_description = json.load(json_file)
 
-    language_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file("language_tokenizer")
-    code_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file("code_tokenizer")
+    language_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(tokenizers_path + "language_tokenizer")
+    code_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(tokenizers_path + "code_tokenizer")
 
     model = BimodalVariationalAutoEncoder(model_description['language_dim'],
                                           language_tokenizer.vocab_size,
@@ -152,7 +151,7 @@ def main():
                                           model_description['latent_dim'])
 
     model.compile(optimizer=tf.keras.optimizers.Adam())
-    model.load_weights("saved_model/model_weights")
+    model.load_weights(model_path + "model_weights")
 
     while True:
         summary = input("Input Summary: ")
@@ -167,4 +166,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    bvae_demo()
