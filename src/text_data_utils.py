@@ -4,6 +4,7 @@ import gensim
 import csv
 import html
 from typing import Tuple, List
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
 def remove_excess_whitespace(text: str) -> str:
@@ -24,6 +25,7 @@ def preprocess_language(language: str) -> str:
                    'best implementation of ', 'what is the best way to ', 'what is the proper way to ']:
         if language.startswith(opener):
             language = language[len(opener):]
+    language = "<s>" + language + "</s>"
     return language
 
 
@@ -32,6 +34,7 @@ def preprocess_source_code(source_code: str) -> str:
     source_code = source_code.replace('\n', ' ')
     source_code = html.unescape(source_code)
     source_code = remove_excess_whitespace(source_code)
+    source_code = "<s>" + source_code + "</s>"
     return source_code
 
 
@@ -48,7 +51,19 @@ def trim_to_len(summaries, codes, max_summary_len, max_source_code_len):
         if len(summaries[i]) <= max_summary_len and len(codes[i]) <= max_source_code_len:
             trimmed_summaries.append(summaries[i])
             trimmed_codes.append(codes[i])
+    trimmed_summaries = pad_sequences(trimmed_summaries, maxlen=max_summary_len, padding='post', value=0)
+    trimmed_codes = pad_sequences(trimmed_codes, maxlen=max_source_code_len, padding='post', value=0)
     return trimmed_summaries, trimmed_codes
+
+
+def load_edinburgh_dataset(path: str):
+    train_summaries = tokenize_texts(open(path + "/data_ps.descriptions.train.txt", encoding='utf-8', errors='ignore').readlines())
+    train_codes = tokenize_texts(open(path + "/data_ps.bodies.train.txt", encoding='utf-8', errors='ignore').readlines())
+    val_summaries = tokenize_texts(open(path + "/data_ps.descriptions.valid.txt", encoding='utf-8', errors='ignore').readlines())
+    val_codes = tokenize_texts(open(path + "/data_ps.bodies.valid.txt", encoding='utf-8', errors='ignore').readlines())
+    test_summaries = tokenize_texts(open(path + "/data_ps.descriptions.test.txt", encoding='utf-8', errors='ignore').readlines())
+    test_codes = tokenize_texts(open(path + "/data_ps.bodies.test.txt", encoding='utf-8', errors='ignore').readlines())
+    return train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
 
 
 def load_csv_dataset(csv_filename: str):
@@ -62,8 +77,6 @@ def load_csv_dataset(csv_filename: str):
         summary = preprocess_language(summary)
         code = row[1]
         code = preprocess_source_code(code)
-        summary = tokenize_text(summary)
-        code = tokenize_text(code)
         summaries.append(summary)
         codes.append(code)
     assert len(summaries) == len(codes)
@@ -101,30 +114,21 @@ def tokenize_texts(texts: List[str]) -> List[List[str]]:
     return tokenized
 
 
-def tokenized_texts_to_tensor(tokenized: List[List[str]], wv: gensim.models.KeyedVectors, max_len: int) -> np.ndarray:
-    assert max_len >= max(len(text) for text in tokenized)
-    tensor = np.zeros((len(tokenized), max_len, wv.vector_size), dtype=np.float32)
-    for i in range(len(tokenized)):
-        for j in range(len(tokenized[i])):
-            if tokenized[i][j] in wv:
-                tensor[i][j] = wv[tokenized[i][j]]
-    return np.array(tensor)
+def subword_encode(summary_tokenizer, code_tokenizer, max_summary_len, max_code_len,
+                   train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes):
 
+    train_summaries = [summary_tokenizer.encode(summary) for summary in train_summaries]
+    train_codes = [code_tokenizer.encode(code) for code in train_codes]
+    val_summaries = [summary_tokenizer.encode(summary) for summary in val_summaries]
+    val_codes = [code_tokenizer.encode(code) for code in val_codes]
+    test_summaries = [summary_tokenizer.encode(summary) for summary in test_summaries]
+    test_codes = [code_tokenizer.encode(code) for code in test_codes]
 
-def tensor_to_tokenized_texts(tensor: np.ndarray, wv: gensim.models.KeyedVectors) -> List[List[str]]:
-    texts = []
-    for tokens_tensor in tensor:
-        text = []
-        for i in range(0, len(tokens_tensor)):
-            similar = wv.similar_by_vector(tokens_tensor[i])[0]
-            if similar[1] > 0.5:
-                text.append(similar[0])
-            else:
-                text.append("<UNK>")
-            if text[-1] == "</s>":
-                break
-        texts.append(text)
-    return texts
+    train_summaries, train_codes = trim_to_len(train_summaries, train_codes, max_summary_len, max_code_len)
+    val_summaries, val_codes = trim_to_len(val_summaries, val_codes, max_summary_len, max_code_len)
+    test_summaries, test_codes = trim_to_len(test_summaries, test_codes, max_summary_len, max_code_len)
+
+    return train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
 
 
 def main():
@@ -139,14 +143,6 @@ def main():
 
     tokenized = tokenize_texts(ex_dataset)
     print(tokenized[0])
-
-    wv = gensim.models.Word2Vec(tokenized).wv
-
-    max_len = max(len(text) for text in tokenized)
-    tensor = tokenized_texts_to_tensor(tokenized, wv, max_len)
-    print(tensor.shape)
-
-    print(tensor_to_tokenized_texts(np.array([tensor[0]]), wv)[0])
 
 
 if __name__ == "__main__":
