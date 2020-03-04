@@ -8,7 +8,7 @@ from text_data_utils import *
 
 def recon_loss(true, pred):
     mask = tf.logical_not(tf.equal(true, 0))
-    recon_all = tf.keras.losses.sparse_categorical_crossentropy(true, pred)
+    recon_all = tf.keras.losses.sparse_categorical_crossentropy(true, pred, from_logits=True)
     recon_all_masked = tf.where(mask, x=recon_all, y=0.0)
     recon = tf.reduce_sum(recon_all_masked) / tf.reduce_sum(tf.cast(mask, 'float32'))
     return recon
@@ -43,12 +43,13 @@ def mpreg_loss(dists, mean_dist):
 
 
 class VariationalEncoder(tf.keras.models.Sequential):
-    def __init__(self, input_dim, latent_dim, vocab_size, input_dropout=0.05, name='variational_encoder'):
+    def __init__(self, input_dim, latent_dim, vocab_size, emb_dim, input_dropout=0.05, name='variational_encoder'):
         super(VariationalEncoder, self).__init__(
             [
+                tf.keras.layers.Embedding(vocab_size, emb_dim, input_length=input_dim),
                 tf.keras.layers.Dropout(input_dropout, noise_shape=(None, input_dim, 1)),
                 tf.keras.layers.Flatten(),
-                tf.keras.layers.Dense(latent_dim * 4),
+                tf.keras.layers.Dense(latent_dim * 8),
                 tf.keras.layers.LeakyReLU(),
                 tf.keras.layers.Dense(latent_dim * 4),
                 tf.keras.layers.LeakyReLU(),
@@ -60,8 +61,7 @@ class VariationalEncoder(tf.keras.models.Sequential):
         self.latent_dim = latent_dim
 
     def call(self, x, training=None, **kwargs):
-        x_oh = tf.one_hot(x, depth=self.vocab_size)
-        dist = super(VariationalEncoder, self).call(x_oh, training=training, **kwargs)
+        dist = super(VariationalEncoder, self).call(x, training=training, **kwargs)
         mean = dist[:, :self.latent_dim]
         stddev = tf.math.abs(dist[:, self.latent_dim:])
         return tfp.distributions.Normal(mean, stddev)
@@ -71,13 +71,12 @@ class Decoder(tf.keras.models.Sequential):
     def __init__(self, latent_dim, reconstructed_dim, vocab_size, name='decoder'):
         super(Decoder, self).__init__(
             [
-                tf.keras.layers.Dense(latent_dim, input_dim=latent_dim),
+                tf.keras.layers.Dense(latent_dim * 2, input_dim=latent_dim),
                 tf.keras.layers.LeakyReLU(),
-                tf.keras.layers.Dense(latent_dim),
+                tf.keras.layers.Dense(latent_dim * 4),
                 tf.keras.layers.LeakyReLU(),
                 tf.keras.layers.Dense(reconstructed_dim * vocab_size),
                 tf.keras.layers.Reshape((reconstructed_dim, vocab_size)),
-                tf.keras.layers.Softmax(axis=-1),
             ],
             name=name
         )
@@ -88,21 +87,20 @@ class RecurrentDecoder(tf.keras.models.Sequential):
         super(RecurrentDecoder, self).__init__(
             [
                 tf.keras.layers.RepeatVector(reconstructed_dim, input_shape=(latent_dim,)),
-                tf.keras.layers.GRU(latent_dim, return_sequences=True),
-                tf.keras.layers.GRU(latent_dim, return_sequences=True),
-                tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(vocab_size, activation='softmax'))
+                tf.keras.layers.Bidirectional(tf.keras.layers.GRU(latent_dim, return_sequences=True)),
+                tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(vocab_size))
             ],
             name=name
         )
 
 
 class BimodalVariationalAutoEncoder(tf.keras.Model):
-    def __init__(self, language_dim, l_sw_vocab_size, source_code_dim, c_sw_vocab_size, latent_dim,
-                 input_dropout=0.05, name='bvae'):
+    def __init__(self, language_dim, l_sw_vocab_size, l_emb_dim, source_code_dim, c_sw_vocab_size, c_emb_dim,
+                 latent_dim, input_dropout=0.05, name='bvae'):
         super(BimodalVariationalAutoEncoder, self).__init__(name=name)
-        self.language_encoder = VariationalEncoder(language_dim, latent_dim, l_sw_vocab_size,
+        self.language_encoder = VariationalEncoder(language_dim, latent_dim, l_sw_vocab_size, l_emb_dim,
                                                    input_dropout=input_dropout, name='language_encoder')
-        self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, c_sw_vocab_size,
+        self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, c_sw_vocab_size, c_emb_dim,
                                                       input_dropout=input_dropout, name='source_code_encoder')
         self.language_decoder = RecurrentDecoder(latent_dim, language_dim, l_sw_vocab_size,
                                                  name='language_decoder')
@@ -134,25 +132,27 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
         return dec_language, dec_source_code
 
 
-def main():
-    if not os.path.isfile("saved_model/model_description.json"):
+def bvae_demo(model_path="../models/saved_model/", tokenizers_path="../data/our_csharp/"):
+    if not os.path.isfile(model_path + "model_description.json"):
         print("Error: Saved model does not exist. Create it with train_model.py")
         quit(-1)
 
-    with open("saved_model/model_description.json", 'r') as json_file:
+    with open(model_path + "model_description.json", 'r') as json_file:
         model_description = json.load(json_file)
 
-    language_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file("language_tokenizer")
-    code_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file("code_tokenizer")
+    language_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(tokenizers_path + "language_tokenizer")
+    code_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(tokenizers_path + "code_tokenizer")
 
     model = BimodalVariationalAutoEncoder(model_description['language_dim'],
                                           language_tokenizer.vocab_size,
+                                          model_description['l_emb_dim'],
                                           model_description['source_code_dim'],
                                           code_tokenizer.vocab_size,
+                                          model_description['c_emb_dim'],
                                           model_description['latent_dim'])
 
     model.compile(optimizer=tf.keras.optimizers.Adam())
-    model.load_weights("saved_model/model_weights")
+    model.load_weights(model_path + "model_weights")
 
     while True:
         summary = input("Input Summary: ")
@@ -167,4 +167,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    bvae_demo()

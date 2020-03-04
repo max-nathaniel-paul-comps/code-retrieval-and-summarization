@@ -3,41 +3,37 @@ import random
 from bvae import *
 
 
-def main():
-    train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes = \
-        load_csv_dataset("../data2/processeed_data2.csv")
+def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/iyer_csharp/",
+               l_dim=40, l_vocab_size=5000, l_emb_dim=128, c_dim=60, c_vocab_size=5000, c_emb_dim=128,
+               latent_dim=128, dropout_rate=0.1):
 
-    language_dim = 39
-    source_code_dim = 50
-
-    language_tokenizer_file = "language_tokenizer"
+    language_tokenizer_file = dataset_path + "language_tokenizer"
     if os.path.isfile(language_tokenizer_file + ".subwords"):
         language_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(language_tokenizer_file)
     else:
         language_tokenizer = tfds.features.text.SubwordTextEncoder.build_from_corpus(
-            (summary for summary in train_summaries),
-            512, reserved_tokens=['<s>', '</s>'])
+            (summary for summary in load_iyer_file(dataset_path + "train.txt")[0]), l_vocab_size, reserved_tokens=['<s>', '</s>'])
         language_tokenizer.save_to_file(language_tokenizer_file)
 
-    code_tokenizer_file = "code_tokenizer"
+    code_tokenizer_file = dataset_path + "code_tokenizer"
     if os.path.isfile(code_tokenizer_file + ".subwords"):
         code_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(code_tokenizer_file)
     else:
         code_tokenizer = tfds.features.text.SubwordTextEncoder.build_from_corpus(
-            (code for code in train_codes),
-            512, reserved_tokens=['<s>', '</s>'])
+            (code for code in load_iyer_file(dataset_path + "train.txt")[1]), c_vocab_size, reserved_tokens=['<s>', '</s>'])
         code_tokenizer.save_to_file(code_tokenizer_file)
 
+    train_summaries, train_codes = load_iyer_file(dataset_path + "train.txt")
+    val_summaries, val_codes = load_iyer_file(dataset_path + "valid.txt")
+    test_summaries, test_codes = load_iyer_file(dataset_path + "test.txt")
+
     train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes = subword_encode(
-        language_tokenizer, code_tokenizer, language_dim, source_code_dim,
+        language_tokenizer, code_tokenizer, l_dim, c_dim,
         train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
     )
 
-    latent_dim = 256
-    dropout_rate = 0.5
-
-    model = BimodalVariationalAutoEncoder(language_dim, language_tokenizer.vocab_size,
-                                          source_code_dim, code_tokenizer.vocab_size,
+    model = BimodalVariationalAutoEncoder(l_dim, language_tokenizer.vocab_size, l_emb_dim,
+                                          c_dim, code_tokenizer.vocab_size, c_emb_dim,
                                           latent_dim, input_dropout=dropout_rate)
 
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=False)
@@ -45,29 +41,31 @@ def main():
     reduce_on_plateau = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=0)
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
 
-    history = model.fit((train_summaries, train_codes), None, batch_size=64, epochs=40,
+    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=25,
                         validation_data=((val_summaries, val_codes), None),
                         callbacks=[reduce_on_plateau, early_stopping])
 
     model_description = {
-        'language_dim': language_dim,
-        'source_code_dim': source_code_dim,
+        'language_dim': l_dim,
+        'l_emb_dim': l_emb_dim,
+        'source_code_dim': c_dim,
+        'c_emb_dim': c_emb_dim,
         'latent_dim': latent_dim,
     }
-    with open("saved_model/model_description.json", 'w') as json_file:
+    with open(model_save_path + "model_description.json", 'w') as json_file:
         json.dump(model_description, json_file)
 
-    model.save_weights("saved_model/model_weights")
+    model.save_weights(model_save_path + "model_weights")
 
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
-    plt.title('model loss bige rec_l_dec rec_c_dec latent_dim=' + str(latent_dim) + ' d=' + str(dropout_rate))
+    plt.title('model loss rec_l_dec latent_dim=' + str(latent_dim) + ' d=' + str(dropout_rate))
     plt.ylabel('loss')
     plt.xlabel('epoch')
     plt.legend(['train', 'val'], loc='upper left')
     plt.show()
 
-    test_loss = model.evaluate((test_summaries, test_codes), None, batch_size=64, verbose=False)
+    test_loss = model.evaluate((test_summaries, test_codes), None, batch_size=128, verbose=False)
     print("Test loss: " + str(test_loss))
 
     for _ in range(20):
@@ -89,4 +87,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    train_bvae()
