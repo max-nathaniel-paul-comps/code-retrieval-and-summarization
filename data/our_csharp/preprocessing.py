@@ -1,12 +1,12 @@
 import csv
 import sys
-sys.path.append("../src")
+sys.path.append("../../src")
 from text_data_utils import *
 
 
-file = open('data2.csv', encoding='UTF8')
+file = open('data3.csv', encoding='UTF8')
 reader = csv.reader(file)
-newfile = open('processeed_data2.csv', 'w', encoding='UTF8', newline='')
+newfile = open('processeed_data3.csv', 'w', encoding='UTF8', newline='')
 writer = csv.writer(newfile)
 rows = 0
 for row in reader:
@@ -21,7 +21,7 @@ for row in reader:
     answer = row[1]
     code = answer[answer.find('<code>')+6:answer.find('</code>')]
     code = preprocess_source_code(code)
-    if len(code) > 30 and len(code) < 400:
+    if len(code) > 30 and len(code) < 600:
         writer.writerow([title,code])
         rows +=1
 

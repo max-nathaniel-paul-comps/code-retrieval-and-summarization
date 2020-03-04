@@ -4,7 +4,7 @@ from bvae import *
 
 
 def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/edinburgh_python/",
-               language_dim=39, source_code_dim=50):
+               language_dim=39, l_emb_dim=64, source_code_dim=50, c_emb_dim=64):
 
     train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes = \
         load_edinburgh_dataset(dataset_path)
@@ -14,8 +14,7 @@ def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/e
         language_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(language_tokenizer_file)
     else:
         language_tokenizer = tfds.features.text.SubwordTextEncoder.build_from_corpus(
-            (summary for summary in train_summaries),
-            512, reserved_tokens=['<s>', '</s>'])
+            (summary for summary in train_summaries), 512)
         language_tokenizer.save_to_file(language_tokenizer_file)
 
     code_tokenizer_file = dataset_path + "code_tokenizer"
@@ -23,8 +22,7 @@ def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/e
         code_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(code_tokenizer_file)
     else:
         code_tokenizer = tfds.features.text.SubwordTextEncoder.build_from_corpus(
-            (code for code in train_codes),
-            512, reserved_tokens=['<s>', '</s>'])
+            (code for code in train_codes), 512)
         code_tokenizer.save_to_file(code_tokenizer_file)
 
     train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes = subword_encode(
@@ -35,8 +33,8 @@ def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/e
     latent_dim = 256
     dropout_rate = 0.5
 
-    model = BimodalVariationalAutoEncoder(language_dim, language_tokenizer.vocab_size,
-                                          source_code_dim, code_tokenizer.vocab_size,
+    model = BimodalVariationalAutoEncoder(language_dim, language_tokenizer.vocab_size, l_emb_dim,
+                                          source_code_dim, code_tokenizer.vocab_size, c_emb_dim,
                                           latent_dim, input_dropout=dropout_rate)
 
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=False)
@@ -50,7 +48,9 @@ def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/e
 
     model_description = {
         'language_dim': language_dim,
+        'l_emb_dim': l_emb_dim,
         'source_code_dim': source_code_dim,
+        'c_emb_dim': c_emb_dim,
         'latent_dim': latent_dim,
     }
     with open(model_save_path + "model_description.json", 'w') as json_file:
@@ -60,7 +60,7 @@ def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/e
 
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
-    plt.title('model loss bige rec_l_dec rec_c_dec latent_dim=' + str(latent_dim) + ' d=' + str(dropout_rate))
+    plt.title('model loss rec_l_dec latent_dim=' + str(latent_dim) + ' d=' + str(dropout_rate))
     plt.ylabel('loss')
     plt.xlabel('epoch')
     plt.legend(['train', 'val'], loc='upper left')

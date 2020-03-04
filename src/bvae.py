@@ -43,12 +43,13 @@ def mpreg_loss(dists, mean_dist):
 
 
 class VariationalEncoder(tf.keras.models.Sequential):
-    def __init__(self, input_dim, latent_dim, vocab_size, input_dropout=0.05, name='variational_encoder'):
+    def __init__(self, input_dim, latent_dim, vocab_size, emb_dim, input_dropout=0.05, name='variational_encoder'):
         super(VariationalEncoder, self).__init__(
             [
+                tf.keras.layers.Embedding(vocab_size, emb_dim, input_length=input_dim),
                 tf.keras.layers.Dropout(input_dropout, noise_shape=(None, input_dim, 1)),
                 tf.keras.layers.Flatten(),
-                tf.keras.layers.Dense(latent_dim * 4),
+                tf.keras.layers.Dense(latent_dim * 8),
                 tf.keras.layers.LeakyReLU(),
                 tf.keras.layers.Dense(latent_dim * 4),
                 tf.keras.layers.LeakyReLU(),
@@ -60,8 +61,7 @@ class VariationalEncoder(tf.keras.models.Sequential):
         self.latent_dim = latent_dim
 
     def call(self, x, training=None, **kwargs):
-        x_oh = tf.one_hot(x, depth=self.vocab_size)
-        dist = super(VariationalEncoder, self).call(x_oh, training=training, **kwargs)
+        dist = super(VariationalEncoder, self).call(x, training=training, **kwargs)
         mean = dist[:, :self.latent_dim]
         stddev = tf.math.abs(dist[:, self.latent_dim:])
         return tfp.distributions.Normal(mean, stddev)
@@ -88,7 +88,6 @@ class RecurrentDecoder(tf.keras.models.Sequential):
             [
                 tf.keras.layers.RepeatVector(reconstructed_dim, input_shape=(latent_dim,)),
                 tf.keras.layers.GRU(latent_dim, return_sequences=True),
-                tf.keras.layers.GRU(latent_dim, return_sequences=True),
                 tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(vocab_size))
             ],
             name=name
@@ -96,17 +95,17 @@ class RecurrentDecoder(tf.keras.models.Sequential):
 
 
 class BimodalVariationalAutoEncoder(tf.keras.Model):
-    def __init__(self, language_dim, l_sw_vocab_size, source_code_dim, c_sw_vocab_size, latent_dim,
-                 input_dropout=0.05, name='bvae'):
+    def __init__(self, language_dim, l_sw_vocab_size, l_emb_dim, source_code_dim, c_sw_vocab_size, c_emb_dim,
+                 latent_dim, input_dropout=0.05, name='bvae'):
         super(BimodalVariationalAutoEncoder, self).__init__(name=name)
-        self.language_encoder = VariationalEncoder(language_dim, latent_dim, l_sw_vocab_size,
+        self.language_encoder = VariationalEncoder(language_dim, latent_dim, l_sw_vocab_size, l_emb_dim,
                                                    input_dropout=input_dropout, name='language_encoder')
-        self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, c_sw_vocab_size,
+        self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, c_sw_vocab_size, c_emb_dim,
                                                       input_dropout=input_dropout, name='source_code_encoder')
         self.language_decoder = RecurrentDecoder(latent_dim, language_dim, l_sw_vocab_size,
                                                  name='language_decoder')
-        self.source_code_decoder = RecurrentDecoder(latent_dim, source_code_dim, c_sw_vocab_size,
-                                                    name='source_code_decoder')
+        self.source_code_decoder = Decoder(latent_dim, source_code_dim, c_sw_vocab_size,
+                                           name='source_code_decoder')
 
     def compute_and_add_loss(self, language_batch, source_code_batch, enc_source_code_dists, enc_language_dists,
                              dec_language, dec_source_code):
@@ -146,8 +145,10 @@ def bvae_demo(model_path="../models/saved_model/", tokenizers_path="../data/edin
 
     model = BimodalVariationalAutoEncoder(model_description['language_dim'],
                                           language_tokenizer.vocab_size,
+                                          model_description['l_emb_dim'],
                                           model_description['source_code_dim'],
                                           code_tokenizer.vocab_size,
+                                          model_description['c_emb_dim'],
                                           model_description['latent_dim'])
 
     model.compile(optimizer=tf.keras.optimizers.Adam())
