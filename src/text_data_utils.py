@@ -32,7 +32,7 @@ def preprocess_language(language: str) -> str:
 def batch_proc(lis, fun):
     return [fun(li) for li in lis]
 
-
+128
 def preprocess_source_code(source_code: str) -> str:
     source_code = re.sub(r'(?<![:\"])(//.*?\n)', ' ', source_code)
     source_code = source_code.replace('\n', ' ')
@@ -96,7 +96,7 @@ def load_csv_dataset(csv_filename: str):
     return train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
 
 
-def load_iyer_file(filename: str, max_len: int = 0) -> Tuple[List[List[str]], List[List[str]]]:
+def load_iyer_file(filename: str) -> Tuple[List[str], List[str]]:
     file_contents = open(filename).readlines()
     summaries = []
     codes = []
@@ -104,11 +104,10 @@ def load_iyer_file(filename: str, max_len: int = 0) -> Tuple[List[List[str]], Li
         items = line.split('\t')
         if len(items) == 5:
             split_line = line.split('\t')
-            summary = tokenize_text(preprocess_language(split_line[2]))
-            code = tokenize_text(preprocess_source_code(split_line[3]))
-            if max_len == 0 or (len(summary) < max_len and len(code) < max_len):
-                summaries.append(summary)
-                codes.append(code)
+            summary = preprocess_language(split_line[2])
+            code = preprocess_source_code(split_line[3])
+            summaries.append(summary)
+            codes.append(code)
     return summaries, codes
 
 

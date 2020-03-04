@@ -71,9 +71,9 @@ class Decoder(tf.keras.models.Sequential):
     def __init__(self, latent_dim, reconstructed_dim, vocab_size, name='decoder'):
         super(Decoder, self).__init__(
             [
-                tf.keras.layers.Dense(latent_dim, input_dim=latent_dim),
+                tf.keras.layers.Dense(latent_dim * 2, input_dim=latent_dim),
                 tf.keras.layers.LeakyReLU(),
-                tf.keras.layers.Dense(latent_dim),
+                tf.keras.layers.Dense(latent_dim * 4),
                 tf.keras.layers.LeakyReLU(),
                 tf.keras.layers.Dense(reconstructed_dim * vocab_size),
                 tf.keras.layers.Reshape((reconstructed_dim, vocab_size)),
@@ -87,7 +87,7 @@ class RecurrentDecoder(tf.keras.models.Sequential):
         super(RecurrentDecoder, self).__init__(
             [
                 tf.keras.layers.RepeatVector(reconstructed_dim, input_shape=(latent_dim,)),
-                tf.keras.layers.GRU(latent_dim, return_sequences=True),
+                tf.keras.layers.Bidirectional(tf.keras.layers.GRU(latent_dim, return_sequences=True)),
                 tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(vocab_size))
             ],
             name=name
@@ -104,8 +104,8 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
                                                       input_dropout=input_dropout, name='source_code_encoder')
         self.language_decoder = RecurrentDecoder(latent_dim, language_dim, l_sw_vocab_size,
                                                  name='language_decoder')
-        self.source_code_decoder = Decoder(latent_dim, source_code_dim, c_sw_vocab_size,
-                                           name='source_code_decoder')
+        self.source_code_decoder = RecurrentDecoder(latent_dim, source_code_dim, c_sw_vocab_size,
+                                                    name='source_code_decoder')
 
     def compute_and_add_loss(self, language_batch, source_code_batch, enc_source_code_dists, enc_language_dists,
                              dec_language, dec_source_code):
@@ -132,7 +132,7 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
         return dec_language, dec_source_code
 
 
-def bvae_demo(model_path="../models/saved_model/", tokenizers_path="../data/edinburgh_python/"):
+def bvae_demo(model_path="../models/saved_model/", tokenizers_path="../data/our_csharp/"):
     if not os.path.isfile(model_path + "model_description.json"):
         print("Error: Saved model does not exist. Create it with train_model.py")
         quit(-1)
