@@ -5,7 +5,7 @@ from bvae import *
 
 def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/iyer_csharp/",
                l_dim=40, l_vocab_size=5000, l_emb_dim=128, c_dim=60, c_vocab_size=5000, c_emb_dim=128,
-               latent_dim=256, dropout_rate=0.5):
+               latent_dim=512, dropout_rate=0.5):
 
     language_tokenizer_file = dataset_path + "language_tokenizer"
     if os.path.isfile(language_tokenizer_file + ".subwords"):
