@@ -5,7 +5,7 @@ from bvae import *
 
 def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/iyer_csharp/",
                l_dim=40, l_vocab_size=5000, l_emb_dim=128, c_dim=60, c_vocab_size=5000, c_emb_dim=128,
-               latent_dim=128, dropout_rate=0.1):
+               latent_dim=512, dropout_rate=0.5):
 
     language_tokenizer_file = dataset_path + "language_tokenizer"
     if os.path.isfile(language_tokenizer_file + ".subwords"):
@@ -38,6 +38,8 @@ def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/i
 
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=False)
 
+    tf.keras.utils.plot_model(model, to_file=(model_save_path+'model_viz.png'), show_shapes=True, expand_nested=True)
+
     reduce_on_plateau = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=0)
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
 
@@ -59,11 +61,11 @@ def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/i
 
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
-    plt.title('model loss rec_l_dec latent_dim=' + str(latent_dim) + ' d=' + str(dropout_rate))
+    plt.title('model loss vocab_size=' + str(l_vocab_size) + 'latent_dim=' + str(latent_dim) + ' d=' + str(dropout_rate))
     plt.ylabel('loss')
     plt.xlabel('epoch')
     plt.legend(['train', 'val'], loc='upper left')
-    plt.show()
+    plt.savefig(model_save_path + 'performance_plot.png')
 
     test_loss = model.evaluate((test_summaries, test_codes), None, batch_size=128, verbose=False)
     print("Test loss: " + str(test_loss))

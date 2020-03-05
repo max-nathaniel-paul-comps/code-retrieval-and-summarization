@@ -42,6 +42,26 @@ def mpreg_loss(dists, mean_dist):
     return kl_divergence
 
 
+class RecurrentVariationalEncoder(tf.keras.models.Sequential):
+    def __init__(self, input_dim, latent_dim, vocab_size, emb_dim, input_dropout=0.05, name='gru_variational_encoder'):
+        super(RecurrentVariationalEncoder, self).__init__(
+            [
+                tf.keras.layers.Embedding(vocab_size, emb_dim, input_length=input_dim),
+                tf.keras.layers.Dropout(input_dropout, noise_shape=(None, input_dim, 1)),
+                tf.keras.layers.Bidirectional(tf.keras.layers.GRU(latent_dim, return_sequences=False)),
+                tf.keras.layers.Dense(latent_dim * 2)
+            ],
+            name=name
+        )
+        self.latent_dim = latent_dim
+
+    def call(self, x, training=None, mask=None):
+        dist = super(RecurrentVariationalEncoder, self).call(x, training=training)
+        mean = dist[:, :self.latent_dim]
+        stddev = tf.math.abs(dist[:, self.latent_dim:])
+        return tfp.distributions.Normal(mean, stddev)
+
+
 class VariationalEncoder(tf.keras.models.Sequential):
     def __init__(self, input_dim, latent_dim, vocab_size, emb_dim, input_dropout=0.05, name='variational_encoder'):
         super(VariationalEncoder, self).__init__(
@@ -57,11 +77,10 @@ class VariationalEncoder(tf.keras.models.Sequential):
             ],
             name=name
         )
-        self.vocab_size = vocab_size
         self.latent_dim = latent_dim
 
-    def call(self, x, training=None, **kwargs):
-        dist = super(VariationalEncoder, self).call(x, training=training, **kwargs)
+    def call(self, x, training=None, mask=None):
+        dist = super(VariationalEncoder, self).call(x, training=training)
         mean = dist[:, :self.latent_dim]
         stddev = tf.math.abs(dist[:, self.latent_dim:])
         return tfp.distributions.Normal(mean, stddev)
@@ -98,10 +117,10 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
     def __init__(self, language_dim, l_sw_vocab_size, l_emb_dim, source_code_dim, c_sw_vocab_size, c_emb_dim,
                  latent_dim, input_dropout=0.05, name='bvae'):
         super(BimodalVariationalAutoEncoder, self).__init__(name=name)
-        self.language_encoder = VariationalEncoder(language_dim, latent_dim, l_sw_vocab_size, l_emb_dim,
-                                                   input_dropout=input_dropout, name='language_encoder')
-        self.source_code_encoder = VariationalEncoder(source_code_dim, latent_dim, c_sw_vocab_size, c_emb_dim,
-                                                      input_dropout=input_dropout, name='source_code_encoder')
+        self.language_encoder = RecurrentVariationalEncoder(language_dim, latent_dim, l_sw_vocab_size, l_emb_dim,
+                                                            input_dropout=input_dropout, name='language_encoder')
+        self.source_code_encoder = RecurrentVariationalEncoder(source_code_dim, latent_dim, c_sw_vocab_size, c_emb_dim,
+                                                               input_dropout=input_dropout, name='source_code_encoder')
         self.language_decoder = RecurrentDecoder(latent_dim, language_dim, l_sw_vocab_size,
                                                  name='language_decoder')
         self.source_code_decoder = RecurrentDecoder(latent_dim, source_code_dim, c_sw_vocab_size,
