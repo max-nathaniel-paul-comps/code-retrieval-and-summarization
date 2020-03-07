@@ -5,7 +5,7 @@ from bvae import *
 
 def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/iyer_csharp/",
                l_dim=40, l_vocab_size=5000, l_emb_dim=128, c_dim=60, c_vocab_size=5000, c_emb_dim=128,
-               latent_dim=512, dropout_rate=0.5):
+               latent_dim=768, dropout_rate=0.5):
 
     language_tokenizer_file = dataset_path + "language_tokenizer"
     if os.path.isfile(language_tokenizer_file + ".subwords"):
@@ -38,7 +38,7 @@ def train_bvae(model_save_path="../models/saved_model/", dataset_path="../data/i
 
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=False)
 
-    tf.keras.utils.plot_model(model, to_file=(model_save_path+'model_viz.png'), show_shapes=True, expand_nested=True)
+    # tf.keras.utils.plot_model(model, to_file=(model_save_path+'model_viz.png'), show_shapes=True, expand_nested=True)
 
     reduce_on_plateau = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=0)
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)

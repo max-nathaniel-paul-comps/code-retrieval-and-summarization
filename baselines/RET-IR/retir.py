@@ -7,6 +7,7 @@ import text_data_utils as tdu
 
 TF_SCHEME = 4
 NUM_TESTS = 10
+
 def topXInds(lis, x):
     indices = []
     for i in range(x):
@@ -63,15 +64,34 @@ def retir_pt(query, candidates, numToReturn):
             similarities.append(cs.cosSim(qScores, cS))
     return topXInds(similarities, numToReturn)
 
+def randSample(summaries, codes, num):
+    used = []
+    sumRet = []
+    codRet = []
+    for x in range(num):
+        choice = random.randint(0, len(summaries)-1)
+        #put this in just to bother you nathaniel :)
+        while choice in used:
+            choice = random.randint(0, len(summaries)-1)
+        used.append(choice)
+        sumRet.append(summaries[choice])
+        codRet.append(codes[choice])
+    return sumRet, codRet
+        
 def testOnData():
-    summaries, codes = tdu.load_iyer_file("../../data/iyer/test.txt")
+    summaries, codes = tdu.load_iyer_file("../../data/iyer_csharp/test.txt")
+    sSums, sCodes = randSample(summaries, codes, 20)
     for x in range(NUM_TESTS):
-        testSumInd = random.choice(range(len(summaries)))
-        answer = retir_pt(summaries[testSumInd], summaries, 1)[0]
-        if not answer==summaries[testSumInd]:
+        testSumInd = random.choice(range(len(sSums)))
+        answer = retir_pt(sSums[testSumInd], sSums, 1)[0]
+        if not answer==testSumInd:
             print("WRONG ANSWER.")
+            print("Answer was: ", sSums[answer], ". The query was: ", sSums[testSumInd])
         print("finished a test")
     print("complete")
+
+def run50SnippetTest(): 
+    
     
 if __name__=="__main__":
     testOnData()
