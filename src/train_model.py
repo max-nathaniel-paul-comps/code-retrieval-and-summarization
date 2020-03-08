@@ -53,13 +53,16 @@ def train_bvae(model_path="../models/a3/", dataset_path="../data/iyer_csharp/"):
 
     tf.keras.utils.plot_model(model, to_file=(model_path+'model_viz.png'), show_shapes=True, expand_nested=True)
 
+    if os.path.isfile(model_path + "checkpoint"):
+        model.load_weights(model_path + "model_checkpoint.ckpt")
+
     checkpoints = tf.keras.callbacks.ModelCheckpoint(model_path + 'model_checkpoint.ckpt',
                                                      verbose=True, save_best_only=True,
                                                      monitor='val_loss', save_freq='epoch', save_weights_only=True)
     reduce_on_plateau = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=0)
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
 
-    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=25,
+    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=15,
                         validation_data=((val_summaries, val_codes), None),
                         callbacks=[checkpoints, reduce_on_plateau, early_stopping])
 
