@@ -1,6 +1,4 @@
 import re
-import numpy as np
-import gensim
 import csv
 import html
 from typing import Tuple, List
@@ -14,7 +12,7 @@ def remove_excess_whitespace(text: str) -> str:
 
 
 def preprocess_language(language: str) -> str:
-    language = language.replace('\n', ' ')
+    language = language.replace('\n', ' ').replace('\\n', ' ')
     language = html.unescape(language)
     language = remove_excess_whitespace(language)
     if language[-1] == '?':
@@ -32,10 +30,10 @@ def preprocess_language(language: str) -> str:
 def batch_proc(lis, fun):
     return [fun(li) for li in lis]
 
-128
+
 def preprocess_source_code(source_code: str) -> str:
     source_code = re.sub(r'(?<![:\"])(//.*?\n)', ' ', source_code)
-    source_code = source_code.replace('\n', ' ')
+    source_code = source_code.replace('\n', ' ').replace('\\n', ' ')
     source_code = html.unescape(source_code)
     source_code = remove_excess_whitespace(source_code)
     if not source_code.startswith("<s>"):

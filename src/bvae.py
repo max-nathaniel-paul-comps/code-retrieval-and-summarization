@@ -3,6 +3,7 @@ import tensorflow_probability as tfp
 import tensorflow_datasets as tfds
 import os
 import json
+import numpy as np
 from text_data_utils import *
 
 
@@ -151,34 +152,40 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
         return dec_language, dec_source_code
 
 
-def bvae_demo(model_path="../models/saved_model/", tokenizers_path="../data/our_csharp/"):
-    if not os.path.isfile(model_path + "model_description.json"):
-        print("Error: Saved model does not exist. Create it with train_model.py")
-        quit(-1)
-
-    with open(model_path + "model_description.json", 'r') as json_file:
-        model_description = json.load(json_file)
+def bvae_demo(model_path="../models/a3/", tokenizers_path="../data/iyer_csharp/"):
 
     language_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(tokenizers_path + "language_tokenizer")
     code_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(tokenizers_path + "code_tokenizer")
 
-    model = BimodalVariationalAutoEncoder(model_description['language_dim'],
-                                          language_tokenizer.vocab_size,
-                                          model_description['l_emb_dim'],
-                                          model_description['source_code_dim'],
-                                          code_tokenizer.vocab_size,
-                                          model_description['c_emb_dim'],
-                                          model_description['latent_dim'])
+    if not os.path.isfile(model_path + "model_description.json"):
+        raise FileNotFoundError("Model description not found")
 
-    model.compile(optimizer=tf.keras.optimizers.Adam())
-    model.load_weights(model_path + "model_weights")
+    with open(model_path + "model_description.json", 'r') as json_file:
+        model_description = json.load(json_file)
+
+    l_dim = model_description['l_dim']
+    l_vocab_size = model_description['l_vocab_size']
+    l_emb_dim = model_description['l_emb_dim']
+    c_dim = model_description['c_dim']
+    c_vocab_size = model_description['c_vocab_size']
+    c_emb_dim = model_description['c_emb_dim']
+    latent_dim = model_description['latent_dim']
+    dropout_rate = model_description['dropout_rate']
+
+    model = BimodalVariationalAutoEncoder(l_dim, language_tokenizer.vocab_size, l_emb_dim,
+                                          c_dim, code_tokenizer.vocab_size, c_emb_dim,
+                                          latent_dim, input_dropout=dropout_rate)
+
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=False)
+
+    model.load_weights(model_path + "model_checkpoint.ckpt")
 
     while True:
         summary = input("Input Summary: ")
         if summary == "exit":
             quit(0)
         summary = [language_tokenizer.encode(preprocess_language(summary))]
-        summary = pad_sequences(summary, maxlen=model_description['language_dim'], padding='post', value=0)
+        summary = pad_sequences(summary, maxlen=l_dim, padding='post', value=0)
         latent = model.language_encoder(summary).mean()
         source_code = model.source_code_decoder(latent)[0].numpy()
         source_code = code_tokenizer.decode(np.argmax(source_code, axis=-1))
