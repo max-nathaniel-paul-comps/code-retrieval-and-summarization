@@ -2,7 +2,7 @@ from bvae import *
 
 
 class RetBVAE(object):
-    def __init__(self, code_snippets, model_path="../models/a3/", tokenizers_path="../data/iyer_csharp/"):
+    def __init__(self, code_snippets, model_path="../models/r2/", tokenizers_path="../data/iyer_csharp/"):
 
         self._language_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(
             tokenizers_path + "language_tokenizer")
@@ -20,10 +20,11 @@ class RetBVAE(object):
         c_emb_dim = model_description['c_emb_dim']
         latent_dim = model_description['latent_dim']
         dropout_rate = model_description['dropout_rate']
+        architecture = model_description['architecture']
 
         self._model = BimodalVariationalAutoEncoder(self.l_dim, self._language_tokenizer.vocab_size, l_emb_dim,
                                                     c_dim, code_tokenizer.vocab_size, c_emb_dim,
-                                                    latent_dim, input_dropout=dropout_rate)
+                                                    latent_dim, input_dropout=dropout_rate, architecture=architecture)
 
         self._model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=False)
 

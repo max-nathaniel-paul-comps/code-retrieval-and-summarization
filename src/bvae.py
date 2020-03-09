@@ -7,7 +7,18 @@ import numpy as np
 from text_data_utils import *
 
 
-def recon_loss(true, pred):
+def ret_recon_loss(true, pred_prob, vocab_size):
+    true_oh = tf.one_hot(true, vocab_size)
+    true_bag_of_words = tf.cast(tf.reduce_any(tf.cast(true_oh, dtype='bool'), axis=-2), dtype='float32')
+    recon_all = tf.nn.sigmoid_cross_entropy_with_logits(true_bag_of_words, pred_prob)
+    identity = tf.range(0, vocab_size, dtype='float32')
+    weighting = identity / vocab_size
+    recon_all_weighted = recon_all * weighting
+    recon = tf.math.log(tf.reduce_mean(tf.reduce_sum(recon_all_weighted, axis=-1)))
+    return recon
+
+
+def recon_loss(true, pred, _):
     mask = tf.logical_not(tf.equal(true, 0))
     recon_all = tf.keras.losses.sparse_categorical_crossentropy(true, pred, from_logits=True)
     recon_all_masked = tf.where(mask, x=recon_all, y=0.0)
@@ -70,10 +81,7 @@ class VariationalEncoder(tf.keras.models.Sequential):
                 tf.keras.layers.Embedding(vocab_size, emb_dim, input_length=input_dim),
                 tf.keras.layers.Dropout(input_dropout, noise_shape=(None, input_dim, 1)),
                 tf.keras.layers.Flatten(),
-                tf.keras.layers.Dense(latent_dim * 8),
-                tf.keras.layers.LeakyReLU(),
-                tf.keras.layers.Dense(latent_dim * 4),
-                tf.keras.layers.LeakyReLU(),
+                tf.keras.layers.Dense(emb_dim, activation='tanh'),
                 tf.keras.layers.Dense(latent_dim * 2)
             ],
             name=name
@@ -91,12 +99,8 @@ class Decoder(tf.keras.models.Sequential):
     def __init__(self, latent_dim, reconstructed_dim, vocab_size, name='decoder'):
         super(Decoder, self).__init__(
             [
-                tf.keras.layers.Dense(latent_dim * 2, input_dim=latent_dim),
-                tf.keras.layers.LeakyReLU(),
-                tf.keras.layers.Dense(latent_dim * 4),
-                tf.keras.layers.LeakyReLU(),
-                tf.keras.layers.Dense(reconstructed_dim * vocab_size),
-                tf.keras.layers.Reshape((reconstructed_dim, vocab_size)),
+                tf.keras.layers.Dense(latent_dim * 2, input_dim=latent_dim, activation='tanh'),
+                tf.keras.layers.Dense(vocab_size)
             ],
             name=name
         )
@@ -116,16 +120,28 @@ class RecurrentDecoder(tf.keras.models.Sequential):
 
 class BimodalVariationalAutoEncoder(tf.keras.Model):
     def __init__(self, language_dim, l_sw_vocab_size, l_emb_dim, source_code_dim, c_sw_vocab_size, c_emb_dim,
-                 latent_dim, input_dropout=0.05, name='bvae'):
+                 latent_dim, input_dropout=0.05, architecture='recurrent', name='bvae'):
         super(BimodalVariationalAutoEncoder, self).__init__(name=name)
-        self.language_encoder = RecurrentVariationalEncoder(language_dim, latent_dim, l_sw_vocab_size, l_emb_dim,
-                                                            input_dropout=input_dropout, name='language_encoder')
-        self.source_code_encoder = RecurrentVariationalEncoder(source_code_dim, latent_dim, c_sw_vocab_size, c_emb_dim,
-                                                               input_dropout=input_dropout, name='source_code_encoder')
-        self.language_decoder = RecurrentDecoder(latent_dim, language_dim, l_sw_vocab_size,
-                                                 name='language_decoder')
-        self.source_code_decoder = RecurrentDecoder(latent_dim, source_code_dim, c_sw_vocab_size,
-                                                    name='source_code_decoder')
+        if architecture == 'recurrent':
+            encoder_model = RecurrentVariationalEncoder
+            decoder_model = RecurrentDecoder
+            self.recon_loss = recon_loss
+        elif architecture == 'mlp':
+            encoder_model = VariationalEncoder
+            decoder_model = Decoder
+            self.recon_loss = ret_recon_loss
+        else:
+            raise Exception("Invalid architecture specification %s" % architecture)
+        self.language_encoder = encoder_model(language_dim, latent_dim, l_sw_vocab_size, l_emb_dim,
+                                              input_dropout=input_dropout, name='language_encoder')
+        self.source_code_encoder = encoder_model(source_code_dim, latent_dim, c_sw_vocab_size, c_emb_dim,
+                                                 input_dropout=input_dropout, name='source_code_encoder')
+        self.language_decoder = decoder_model(latent_dim, language_dim, l_sw_vocab_size,
+                                              name='language_decoder')
+        self.source_code_decoder = decoder_model(latent_dim, source_code_dim, c_sw_vocab_size,
+                                                 name='source_code_decoder')
+        self.l_vocab_size = l_sw_vocab_size
+        self.c_vocab_size = c_sw_vocab_size
 
     def compute_and_add_loss(self, language_batch, source_code_batch, enc_source_code_dists, enc_language_dists,
                              dec_language, dec_source_code):
@@ -134,8 +150,8 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
         source_code_kld = mpreg_loss(enc_source_code_dists, mean_dists)
         """language_kld = preg_loss(enc_language_dists, enc_source_code_dists)
         source_code_kld = preg_loss(enc_source_code_dists, enc_language_dists)"""
-        language_recon = recon_loss(language_batch, dec_language)
-        source_code_recon = recon_loss(source_code_batch, dec_source_code)
+        language_recon = self.recon_loss(language_batch, dec_language, self.l_vocab_size)
+        source_code_recon = self.recon_loss(source_code_batch, dec_source_code, self.c_vocab_size)
         self.add_loss(language_kld + source_code_kld + language_recon + source_code_recon)
 
     def call(self, inputs, training=None, mask=None):
@@ -164,17 +180,16 @@ def bvae_demo(model_path="../models/a3/", tokenizers_path="../data/iyer_csharp/"
         model_description = json.load(json_file)
 
     l_dim = model_description['l_dim']
-    l_vocab_size = model_description['l_vocab_size']
     l_emb_dim = model_description['l_emb_dim']
     c_dim = model_description['c_dim']
-    c_vocab_size = model_description['c_vocab_size']
     c_emb_dim = model_description['c_emb_dim']
     latent_dim = model_description['latent_dim']
     dropout_rate = model_description['dropout_rate']
+    architecture = model_description['architecture']
 
     model = BimodalVariationalAutoEncoder(l_dim, language_tokenizer.vocab_size, l_emb_dim,
                                           c_dim, code_tokenizer.vocab_size, c_emb_dim,
-                                          latent_dim, input_dropout=dropout_rate)
+                                          latent_dim, input_dropout=dropout_rate, architecture=architecture)
 
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=False)
 
