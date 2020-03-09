@@ -35,7 +35,7 @@ class RetBVAE(object):
                                                                         padding='post', value=0)
         self._encoded_code_snippets = self._model.source_code_encoder(snippets_padded).mean()
 
-    def retrieve(self, input_summaries):
+    def _compute_similarities(self, input_summaries):
         summaries = [preprocess_language(summary) for summary in input_summaries]
         summaries_tokenized = [self._language_tokenizer.encode(summary) for summary in summaries]
         summaries_padded = tf.keras.preprocessing.sequence.pad_sequences(summaries_tokenized, maxlen=self.l_dim,
@@ -46,23 +46,21 @@ class RetBVAE(object):
             tf.math.l2_normalize(self._encoded_code_snippets, axis=-1),
             transpose_b=True
         )
+        return similarities
+
+    def retrieve(self, input_summaries):
+        similarities = self._compute_similarities(input_summaries)
         best_snippet_ids = tf.argmax(similarities, axis=-1).numpy()
         best_snippets = [self._code_snippets[best_snippet_ids[i]] for i in range(len(best_snippet_ids))]
         return best_snippets
 
     def evaluate_retrieval(self, input_summaries, correct_codes):
-        summaries = [preprocess_language(summary) for summary in input_summaries]
-        summaries_tokenized = [self._language_tokenizer.encode(summary) for summary in summaries]
-        summaries_padded = tf.keras.preprocessing.sequence.pad_sequences(summaries_tokenized, maxlen=self.l_dim,
-                                                                         padding='post', value=0)
-        encoded_summaries = self._model.language_encoder(summaries_padded).mean()
-        similarities = tf.matmul(encoded_summaries, self._encoded_code_snippets, transpose_b=True)
-        probabilities = tf.nn.softmax(similarities, axis=-1)
-        sorted_indices = tf.argsort(probabilities, axis=-1, direction='DESCENDING')
+        similarities = self._compute_similarities(input_summaries)
+        sorted_indices = tf.argsort(similarities, axis=-1, direction='DESCENDING')
 
         reciprocal_ranks = []
-        for i in range(len(probabilities)):
-            for j in range(len(probabilities[i])):
+        for i in range(len(similarities)):
+            for j in range(len(similarities[i])):
                 if self._code_snippets[sorted_indices[i][j]] == correct_codes[i]:
                     reciprocal_ranks.append(1.0 / (j + 1.0))
                     break
