@@ -3,7 +3,7 @@ import random
 from bvae import *
 
 
-def train_bvae(model_path="../models/r2/", dataset_path="../data/iyer_csharp/",
+def train_bvae(model_path="../models/r3/", dataset_path="../data/iyer_csharp/",
                l_target_vocab_size=9000, c_target_vocab_size=9000):
 
     if not os.path.isfile(model_path + "model_description.json"):

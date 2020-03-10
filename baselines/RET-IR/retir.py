@@ -91,7 +91,8 @@ def testOnData():
     print("complete")
 
 def run50SnippetTest(): 
-    
+    raise NotImplementedError("The thing that actually bothers me is that the simple act of including this file caused "
+                              "a parse error")
     
 if __name__=="__main__":
     testOnData()

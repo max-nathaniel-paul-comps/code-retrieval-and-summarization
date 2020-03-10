@@ -2,7 +2,7 @@ from bvae import *
 
 
 class RetBVAE(object):
-    def __init__(self, model_path="../models/r2/", tokenizers_path="../data/iyer_csharp/"):
+    def __init__(self, model_path="../models/r3/", tokenizers_path="../data/iyer_csharp/"):
 
         self._language_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(
             tokenizers_path + "language_tokenizer")

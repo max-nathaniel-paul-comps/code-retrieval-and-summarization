@@ -11,10 +11,10 @@ def ret_recon_loss(true, pred_prob, vocab_size):
     true_oh = tf.one_hot(true, vocab_size)
     true_bag_of_words = tf.cast(tf.reduce_any(tf.cast(true_oh, dtype='bool'), axis=-2), dtype='float32')
     recon_all = tf.nn.sigmoid_cross_entropy_with_logits(true_bag_of_words, pred_prob)
-    identity = tf.range(0, vocab_size, dtype='float32')
-    weighting = identity / vocab_size
-    recon_all_weighted = recon_all * weighting
-    recon = tf.math.log(tf.reduce_mean(tf.reduce_sum(recon_all_weighted, axis=-1)))
+    """identity = tf.range(0, vocab_size, dtype='float32')
+    weighting = tf.math.tanh(2 * identity / vocab_size)
+    recon_all_weighted = recon_all * weighting"""
+    recon = tf.math.log(tf.reduce_mean(tf.reduce_sum(recon_all, axis=-1)))
     return recon
 
 
@@ -79,9 +79,10 @@ class VariationalEncoder(tf.keras.models.Sequential):
         super(VariationalEncoder, self).__init__(
             [
                 tf.keras.layers.Embedding(vocab_size, emb_dim, input_length=input_dim),
-                tf.keras.layers.Dropout(input_dropout, noise_shape=(None, input_dim, 1)),
-                tf.keras.layers.Flatten(),
-                tf.keras.layers.Dense(emb_dim, activation='tanh'),
+                tf.keras.layers.GlobalAveragePooling1D(),
+                tf.keras.layers.Activation('tanh'),
+                tf.keras.layers.Dense(latent_dim * 8),
+                tf.keras.layers.LeakyReLU(),
                 tf.keras.layers.Dense(latent_dim * 2)
             ],
             name=name
@@ -99,7 +100,10 @@ class Decoder(tf.keras.models.Sequential):
     def __init__(self, latent_dim, reconstructed_dim, vocab_size, name='decoder'):
         super(Decoder, self).__init__(
             [
-                tf.keras.layers.Dense(latent_dim * 2, input_dim=latent_dim, activation='tanh'),
+                tf.keras.layers.Dense(latent_dim * 2, input_dim=latent_dim),
+                tf.keras.layers.LeakyReLU(),
+                tf.keras.layers.Dense(latent_dim * 8),
+                tf.keras.layers.LeakyReLU(),
                 tf.keras.layers.Dense(vocab_size)
             ],
             name=name

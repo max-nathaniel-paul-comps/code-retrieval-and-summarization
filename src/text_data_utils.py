@@ -42,6 +42,10 @@ def preprocess_source_code(source_code: str) -> str:
 
 
 def tokenize_text(text: str) -> List[str]:
+    if text.startswith("<s>"):
+        text = text[len("<s>"):]
+    if text.endswith("</s>"):
+        text = text[:-len("</s>")]
     words_re = re.compile(r'(\w+|[^\w\s])')
     return ['<s>'] + words_re.findall(text) + ['</s>']
 
