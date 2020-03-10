@@ -4,7 +4,7 @@ from bvae import *
 
 
 def train_bvae(model_path="../models/r3/", dataset_path="../data/iyer_csharp/",
-               l_target_vocab_size=9000, c_target_vocab_size=9000):
+               l_target_vocab_size=5000, c_target_vocab_size=5000):
 
     if not os.path.isfile(model_path + "model_description.json"):
         raise FileNotFoundError("Model description not found")
@@ -51,7 +51,7 @@ def train_bvae(model_path="../models/r3/", dataset_path="../data/iyer_csharp/",
                                           c_dim, code_tokenizer.vocab_size, c_emb_dim,
                                           latent_dim, input_dropout=dropout_rate, architecture=architecture)
 
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=False)
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.005), run_eagerly=False)
 
     tf.keras.utils.plot_model(model, to_file=(model_path+'model_viz.png'), show_shapes=True, expand_nested=True)
 

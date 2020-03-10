@@ -81,7 +81,7 @@ class VariationalEncoder(tf.keras.models.Sequential):
                 tf.keras.layers.Embedding(vocab_size, emb_dim, input_length=input_dim),
                 tf.keras.layers.GlobalAveragePooling1D(),
                 tf.keras.layers.Activation('tanh'),
-                tf.keras.layers.Dense(latent_dim * 8),
+                tf.keras.layers.Dense(latent_dim * 2),
                 tf.keras.layers.LeakyReLU(),
                 tf.keras.layers.Dense(latent_dim * 2)
             ],
@@ -101,8 +101,6 @@ class Decoder(tf.keras.models.Sequential):
         super(Decoder, self).__init__(
             [
                 tf.keras.layers.Dense(latent_dim * 2, input_dim=latent_dim),
-                tf.keras.layers.LeakyReLU(),
-                tf.keras.layers.Dense(latent_dim * 8),
                 tf.keras.layers.LeakyReLU(),
                 tf.keras.layers.Dense(vocab_size)
             ],

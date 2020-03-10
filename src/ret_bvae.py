@@ -85,7 +85,7 @@ class RetBVAE(object):
 
 
 def main():
-    _, codes = load_iyer_file("../data/iyer_csharp/test.txt")
+    _, codes = load_iyer_file("../data/iyer_csharp/dev.txt")
     ret_bvae = RetBVAE()
     ret_bvae.interactive_demo(codes)
 
