@@ -11,7 +11,7 @@ def reciprocal_rank(sorted_indices, golden_idx):
             return 1.0 / (i + 1.0)
 
 
-def evaluate_retrieval(summaries, codes, baseline='ret_ir', random_sample_size=50, num_samples=200):
+def evaluate_retrieval(summaries, codes, baseline='ret_ir', random_sample_size=50, num_samples=150):
     if baseline == 'ret_ir':
         def baseline_model(summary, candidate_summaries):
             summary = retir.shuffleQuery(summary, 0.2)

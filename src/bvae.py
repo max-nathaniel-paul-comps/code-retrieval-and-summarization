@@ -8,13 +8,9 @@ from text_data_utils import *
 
 
 def ret_recon_loss(true, pred_prob, vocab_size):
-    true_oh = tf.one_hot(true, vocab_size)
-    true_bag_of_words = tf.cast(tf.reduce_any(tf.cast(true_oh, dtype='bool'), axis=-2), dtype='float32')
-    recon_all = tf.nn.sigmoid_cross_entropy_with_logits(true_bag_of_words, pred_prob)
-    """identity = tf.range(0, vocab_size, dtype='float32')
-    weighting = tf.math.tanh(2 * identity / vocab_size)
-    recon_all_weighted = recon_all * weighting"""
-    recon = tf.math.log(tf.reduce_mean(tf.reduce_sum(recon_all, axis=-1)))
+    true_bag_of_words = docs_to_bags_of_words(true, vocab_size)
+    recon_all = tf.nn.softmax_cross_entropy_with_logits(tf.stop_gradient(true_bag_of_words), pred_prob)
+    recon = tf.reduce_mean(recon_all)
     return recon
 
 
@@ -52,6 +48,21 @@ def mpreg_loss(dists, mean_dist):
         )
     )
     return kl_divergence
+
+
+def docs_to_bags_of_words(docs, vocab_size):
+    one_hot = tf.one_hot(docs, vocab_size)
+    bags_of_words = tf.reduce_mean(one_hot, axis=-2)
+    return bags_of_words
+
+
+class BagOfWords(tf.keras.layers.Layer):
+    def __init__(self, vocab_size, name='bag_of_words', **kwargs):
+        super(BagOfWords, self).__init__(name=name, **kwargs)
+        self.vocab_size = vocab_size
+
+    def call(self, inputs, **kwargs):
+        return docs_to_bags_of_words(inputs, self.vocab_size)
 
 
 class RecurrentVariationalEncoder(tf.keras.models.Sequential):
@@ -96,6 +107,26 @@ class VariationalEncoder(tf.keras.models.Sequential):
         return tfp.distributions.Normal(mean, stddev)
 
 
+class VariationalEncoderNoEmbedding(tf.keras.models.Sequential):
+    def __init__(self, input_dim, latent_dim, vocab_size, emb_dim, input_dropout=0.05, name='variational_encoder'):
+        super(VariationalEncoderNoEmbedding, self).__init__(
+            [
+                BagOfWords(vocab_size),
+                tf.keras.layers.Dense(latent_dim * 2),
+                tf.keras.layers.LeakyReLU(),
+                tf.keras.layers.Dense(latent_dim * 2)
+            ],
+            name=name
+        )
+        self.latent_dim = latent_dim
+
+    def call(self, x, training=None, mask=None):
+        dist = super(VariationalEncoderNoEmbedding, self).call(x, training=training)
+        mean = dist[:, :self.latent_dim]
+        stddev = tf.math.abs(dist[:, self.latent_dim:])
+        return tfp.distributions.Normal(mean, stddev)
+
+
 class Decoder(tf.keras.models.Sequential):
     def __init__(self, latent_dim, reconstructed_dim, vocab_size, name='decoder'):
         super(Decoder, self).__init__(
@@ -125,23 +156,33 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
                  latent_dim, input_dropout=0.05, architecture='recurrent', name='bvae'):
         super(BimodalVariationalAutoEncoder, self).__init__(name=name)
         if architecture == 'recurrent':
-            encoder_model = RecurrentVariationalEncoder
-            decoder_model = RecurrentDecoder
+            l_enc_model = RecurrentVariationalEncoder
+            c_enc_model = RecurrentVariationalEncoder
+            l_dec_model = RecurrentDecoder
+            c_dec_model = RecurrentDecoder
             self.recon_loss = recon_loss
         elif architecture == 'mlp':
-            encoder_model = VariationalEncoder
-            decoder_model = Decoder
+            l_enc_model = VariationalEncoder
+            c_enc_model = VariationalEncoder
+            l_dec_model = Decoder
+            c_dec_model = Decoder
+            self.recon_loss = ret_recon_loss
+        elif architecture == 'mlp_parsed_code':
+            l_enc_model = VariationalEncoderNoEmbedding
+            c_enc_model = VariationalEncoderNoEmbedding
+            l_dec_model = Decoder
+            c_dec_model = Decoder
             self.recon_loss = ret_recon_loss
         else:
             raise Exception("Invalid architecture specification %s" % architecture)
-        self.language_encoder = encoder_model(language_dim, latent_dim, l_sw_vocab_size, l_emb_dim,
-                                              input_dropout=input_dropout, name='language_encoder')
-        self.source_code_encoder = encoder_model(source_code_dim, latent_dim, c_sw_vocab_size, c_emb_dim,
-                                                 input_dropout=input_dropout, name='source_code_encoder')
-        self.language_decoder = decoder_model(latent_dim, language_dim, l_sw_vocab_size,
-                                              name='language_decoder')
-        self.source_code_decoder = decoder_model(latent_dim, source_code_dim, c_sw_vocab_size,
-                                                 name='source_code_decoder')
+        self.language_encoder = l_enc_model(language_dim, latent_dim, l_sw_vocab_size, l_emb_dim,
+                                            input_dropout=input_dropout, name='language_encoder')
+        self.source_code_encoder = c_enc_model(source_code_dim, latent_dim, c_sw_vocab_size, c_emb_dim,
+                                               input_dropout=input_dropout, name='source_code_encoder')
+        self.language_decoder = l_dec_model(latent_dim, language_dim, l_sw_vocab_size,
+                                            name='language_decoder')
+        self.source_code_decoder = c_dec_model(latent_dim, source_code_dim, c_sw_vocab_size,
+                                               name='source_code_decoder')
         self.l_vocab_size = l_sw_vocab_size
         self.c_vocab_size = c_sw_vocab_size
 

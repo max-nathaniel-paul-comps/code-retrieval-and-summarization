@@ -3,8 +3,8 @@ import random
 from bvae import *
 
 
-def train_bvae(model_path="../models/r3/", dataset_path="../data/iyer_csharp/",
-               l_target_vocab_size=5000, c_target_vocab_size=5000):
+def train_bvae(model_path="../models/r4/", dataset_path="../data/iyer_csharp/",
+               l_target_vocab_size=400):
 
     if not os.path.isfile(model_path + "model_description.json"):
         raise FileNotFoundError("Model description not found")
@@ -33,25 +33,25 @@ def train_bvae(model_path="../models/r3/", dataset_path="../data/iyer_csharp/",
             reserved_tokens=['<s>', '</s>'])
         language_tokenizer.save_to_file(language_tokenizer_file)
 
-    code_tokenizer_file = dataset_path + "code_tokenizer"
-    if os.path.isfile(code_tokenizer_file + ".subwords"):
-        code_tokenizer = tfds.features.text.SubwordTextEncoder.load_from_file(code_tokenizer_file)
-    else:
-        code_tokenizer = tfds.features.text.SubwordTextEncoder.build_from_corpus(
-            (code for code in train_codes), c_target_vocab_size,
-            reserved_tokens=['<s>', '</s>'])
-        code_tokenizer.save_to_file(code_tokenizer_file)
+    train_summaries = [language_tokenizer.encode(summary) for summary in train_summaries]
+    val_summaries = [language_tokenizer.encode(summary) for summary in val_summaries]
+    test_summaries = [language_tokenizer.encode(summary) for summary in test_summaries]
 
-    train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes = subword_encode(
-        language_tokenizer, code_tokenizer, l_dim, c_dim,
-        train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
-    )
+    train_codes = parse_codes(train_codes, c_dim)
+    val_codes = parse_codes(val_codes, c_dim)
+    test_codes = parse_codes(test_codes, c_dim)
+
+    train_summaries, train_codes = trim_to_len(train_summaries, train_codes, l_dim, c_dim)
+    val_summaries, val_codes = trim_to_len(val_summaries, val_codes, l_dim, c_dim)
+    test_summaries, test_codes = trim_to_len(test_summaries, test_codes, l_dim, c_dim)
+
+    c_vocab_size = MAX_LEXER_INDEX + 2
 
     model = BimodalVariationalAutoEncoder(l_dim, language_tokenizer.vocab_size, l_emb_dim,
-                                          c_dim, code_tokenizer.vocab_size, c_emb_dim,
+                                          c_dim, c_vocab_size, c_emb_dim,
                                           latent_dim, input_dropout=dropout_rate, architecture=architecture)
 
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.005), run_eagerly=False)
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=True)
 
     tf.keras.utils.plot_model(model, to_file=(model_path+'model_viz.png'), show_shapes=True, expand_nested=True)
 

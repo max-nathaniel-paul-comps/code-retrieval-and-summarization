@@ -3,6 +3,7 @@ import csv
 import html
 from typing import Tuple, List
 from tensorflow.keras.preprocessing.sequence import pad_sequences
+from CSharp4Lexer import *
 
 
 def remove_excess_whitespace(text: str) -> str:
@@ -22,8 +23,6 @@ def preprocess_language(language: str) -> str:
                    'best implementation of ', 'what is the best way to ', 'what is the proper way to ']:
         if language.lower().startswith(opener):
             language = language[len(opener):]
-    if not language.startswith("<s>"):
-        language = "<s>" + language + "</s>"
     return language
 
 
@@ -36,18 +35,12 @@ def preprocess_source_code(source_code: str) -> str:
     source_code = source_code.replace('\n', ' ').replace('\\n', ' ')
     source_code = html.unescape(source_code)
     source_code = remove_excess_whitespace(source_code)
-    if not source_code.startswith("<s>"):
-        source_code = "<s>" + source_code + "</s>"
     return source_code
 
 
 def tokenize_text(text: str) -> List[str]:
-    if text.startswith("<s>"):
-        text = text[len("<s>"):]
-    if text.endswith("</s>"):
-        text = text[:-len("</s>")]
     words_re = re.compile(r'(\w+|[^\w\s])')
-    return ['<s>'] + words_re.findall(text) + ['</s>']
+    return words_re.findall(text) + ['<eof>']
 
 
 def trim_to_len(summaries, codes, max_summary_len, max_source_code_len):
@@ -113,28 +106,28 @@ def load_iyer_file(filename: str) -> Tuple[List[str], List[str]]:
     return summaries, codes
 
 
+def parse_codes(codes: List[str], max_len: int) -> List[List[int]]:
+    parsed_codes = []
+    for code in codes:
+        lexer = CSharp4Lexer(InputStream(code))
+        token_stream = CommonTokenStream(lexer)
+        token_stream.fetch(max_len + 1)  # We fetch one more than the max len so we can detect oversize codes later...
+        parsed_code = []
+        for token in token_stream.tokens:
+            token_type = token.type
+            if token_type not in [4, 5, 6, 7, 8, 9]:
+                if token_type == -1:
+                    token_type = MAX_LEXER_INDEX + 1
+                parsed_code.append(token_type)
+        parsed_codes.append(parsed_code)
+    return parsed_codes
+
+
 def tokenize_texts(texts: List[str]) -> List[List[str]]:
     tokenized = []
     for text in texts:
         tokenized.append(tokenize_text(text))
     return tokenized
-
-
-def subword_encode(summary_tokenizer, code_tokenizer, max_summary_len, max_code_len,
-                   train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes):
-
-    train_summaries = [summary_tokenizer.encode(summary) for summary in train_summaries]
-    train_codes = [code_tokenizer.encode(code) for code in train_codes]
-    val_summaries = [summary_tokenizer.encode(summary) for summary in val_summaries]
-    val_codes = [code_tokenizer.encode(code) for code in val_codes]
-    test_summaries = [summary_tokenizer.encode(summary) for summary in test_summaries]
-    test_codes = [code_tokenizer.encode(code) for code in test_codes]
-
-    train_summaries, train_codes = trim_to_len(train_summaries, train_codes, max_summary_len, max_code_len)
-    val_summaries, val_codes = trim_to_len(val_summaries, val_codes, max_summary_len, max_code_len)
-    test_summaries, test_codes = trim_to_len(test_summaries, test_codes, max_summary_len, max_code_len)
-
-    return train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
 
 
 def main():
