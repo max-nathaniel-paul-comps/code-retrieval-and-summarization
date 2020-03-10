@@ -7,6 +7,7 @@ sys.path.append('../../src')
 import text_data_utils as tdu
 
 DEBUG_PRINT = False
+DO_SHIFTING = False
 TF_SCHEME = 4
 NUM_TESTS = 10
 
@@ -109,7 +110,7 @@ def run50SnippetTest():
     return ranks, rankCorrect
 
 def runSingleQuery():
-    sumSnips, codeSnips = setup(20)
+    sumSnips, codeSnips = setup(50)
     choice = random.choice(range(len(codeSnips)))
     corSum = sumSnips[choice]
     corCode = codeSnips[choice]
@@ -130,18 +131,30 @@ def runSingleQuery():
     dPrint("Taken from given summary: ")
     dPrint(returnSum)
 
-def shuffleQuery(q):
+def shuffleQuery(q, chanceToShuffle):
+    assert chanceToShuffle < 1.0 and chanceToShuffle >= 0.0
     q = q[3:]
     q = q[:-4]
     returner = ""
+    moveOver = False
+    mover = ""
     for w in q.split(" "):
-        if random.randint(0, 9) > 2:
+        if moveOver:
+            moveOver = False
+            returner += mover + " "
+        ran = random.random()
+        if ran > chanceToShuffle:
             returner += w + " "
+        else:
+            if ran < (chanceToShuffle/2) and DO_SHIFTING:
+                moveOver = True
+                mover = w
     returner = "<s>" + returner + "</s>"
     return returner
 def runShuffleQuery(numSnips, numTimes):
     sumSnips, codeSnips = setup(numSnips)
     listRanks = []
+    chance = 0.2
     for x in range(numTimes):
         corInd = random.choice(range(len(codeSnips)))
         corSum = sumSnips[corInd]
@@ -149,7 +162,7 @@ def runShuffleQuery(numSnips, numTimes):
         dPrint(corSum)
         dPrint("For code:")
         dPrint(codeSnips[corInd])
-        shuffled = shuffleQuery(corSum)
+        shuffled = shuffleQuery(corSum, chance)
         dPrint("Edited query:")
         dPrint(shuffled)
         returns = retir_pt(shuffled, sumSnips, numSnips)
@@ -181,4 +194,4 @@ if __name__=="__main__":
         numTests = int(input())
         runShuffleQuery(numSnips, numTests)
     
-    
+        
