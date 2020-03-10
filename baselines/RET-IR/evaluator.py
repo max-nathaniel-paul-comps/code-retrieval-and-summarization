@@ -5,8 +5,7 @@ def mrr(results):
     rQ = 1/len(results)
     rankSum = 0
     for r in results:
-        rankSum += 1/r
+        rankSum += 1/(r+1)
     return rQ * rankSum
     
-def run50snippetTests(sums, codes, numTests):
     

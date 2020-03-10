@@ -1,10 +1,12 @@
 import cosineSim as cs
 import tfidf as tf
+import evaluator as ev
 import sys
 import random
 sys.path.append('../../src')
 import text_data_utils as tdu
 
+DEBUG_PRINT = False
 TF_SCHEME = 4
 NUM_TESTS = 10
 
@@ -90,11 +92,93 @@ def testOnData():
         print("finished a test")
     print("complete")
 
-def run50SnippetTest(): 
-    raise NotImplementedError("The thing that actually bothers me is that the simple act of including this file caused "
-                              "a parse error")
-    
+def setup(numToTake):
+    summaries, codes = tdu.load_iyer_file("../../data/iyer_csharp/test.txt")
+    sumSnips, codeSnips = randSample(summaries, codes, numToTake)
+    return sumSnips, codeSnips
+
+def run50SnippetTest():
+    sumSnips, codeSnips = setup(50)
+    choice = random.choice(range(len(codeSnips)))
+    corSum = sumSnips[choice]
+    dPrint("Give a human-annotated title for the following code snippet. This will be used as the query.")
+    dPrint(codeSnips[choice])
+    query = input()
+    ranks = retir_pt(query, sumSnips, 50)
+    rankCorrect = ranks.index(corSum)
+    return ranks, rankCorrect
+
+def runSingleQuery():
+    sumSnips, codeSnips = setup(20)
+    choice = random.choice(range(len(codeSnips)))
+    corSum = sumSnips[choice]
+    corCode = codeSnips[choice]
+    dPrint("Give a reasonable query for the following code snippet:")
+    dPrint(corCode)
+    dPrint("With original summary:")
+    dPrint(corSum)
+    query = input()
+    query = "<s>" + query + "</s>"
+    returns = retir_pt(query, sumSnips, 20)
+    returnval = returns[0]
+    returnCode = codeSnips[returnval]
+    returnSum = sumSnips[returnval]
+    dPrint("Rank of your correct snippet was: ")
+    dPrint(returns.index(choice))
+    dPrint("The following code was returned, hopefully the same snippet as before")
+    dPrint(returnCode)
+    dPrint("Taken from given summary: ")
+    dPrint(returnSum)
+
+def shuffleQuery(q):
+    q = q[3:]
+    q = q[:-4]
+    returner = ""
+    for w in q.split(" "):
+        if random.randint(0, 9) > 2:
+            returner += w + " "
+    returner = "<s>" + returner + "</s>"
+    return returner
+def runShuffleQuery(numSnips, numTimes):
+    sumSnips, codeSnips = setup(numSnips)
+    listRanks = []
+    for x in range(numTimes):
+        corInd = random.choice(range(len(codeSnips)))
+        corSum = sumSnips[corInd]
+        dPrint("Original summary:")
+        dPrint(corSum)
+        dPrint("For code:")
+        dPrint(codeSnips[corInd])
+        shuffled = shuffleQuery(corSum)
+        dPrint("Edited query:")
+        dPrint(shuffled)
+        returns = retir_pt(shuffled, sumSnips, numSnips)
+        dPrint("Correct return was at rank:")
+        dPrint(returns.index(corInd))
+        listRanks.append(returns.index(corInd))
+        print("Finished test ", x)
+    print("Final MRR for shuffle: ")
+    print(ev.mrr(listRanks))
+
+def dPrint(string):
+    if DEBUG_PRINT:
+        print(string)
 if __name__=="__main__":
-    testOnData()
+    print("Which test of RET-IR would you like to run?")
+    print("(0) TestOnData() (DEPRECATED TESTING FUNC)")
+    print("(1) Manual query testing")
+    print("(2) Snippet tests using shuffle query testing")
+    resp = input()
+
+    if resp=="0":
+        testOnData()
+    elif resp=="1":
+        runSingleQuery()
+    else:
+        print("How many snippets per test? Recommended 50")
+        numSnips = int(input())
+        print("How many tests to run?")
+        numTests = int(input())
+        runShuffleQuery(numSnips, numTests)
     
     
