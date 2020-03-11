@@ -23,6 +23,7 @@ def preprocess_language(language: str) -> str:
                    'best implementation of ', 'what is the best way to ', 'what is the proper way to ']:
         if language.lower().startswith(opener):
             language = language[len(opener):]
+    language = language.lower()
     return language
 
 
@@ -43,12 +44,14 @@ def tokenize_text(text: str) -> List[str]:
     return words_re.findall(text) + ['<eof>']
 
 
-def trim_to_len(summaries, codes, max_summary_len, max_source_code_len):
+def trim_to_len(summaries, codes, max_summary_len, max_source_code_len,
+                oversize_sequence_behavior='leave_out'):
     assert len(summaries) == len(codes)
     trimmed_summaries = []
     trimmed_codes = []
     for i in range(len(summaries)):
-        if len(summaries[i]) <= max_summary_len and len(codes[i]) <= max_source_code_len:
+        if oversize_sequence_behavior == 'truncate' \
+                or len(summaries[i]) <= max_summary_len and len(codes[i]) <= max_source_code_len:
             trimmed_summaries.append(summaries[i])
             trimmed_codes.append(codes[i])
     trimmed_summaries = pad_sequences(trimmed_summaries, maxlen=max_summary_len, padding='post', value=0)
@@ -114,11 +117,20 @@ def parse_codes(codes: List[str], max_len: int) -> List[List[int]]:
         token_stream.fetch(max_len + 1)  # We fetch one more than the max len so we can detect oversize codes later...
         parsed_code = []
         for token in token_stream.tokens:
-            token_type = token.type
-            if token_type not in [4, 5, 6, 7, 8, 9]:
-                if token_type == -1:
-                    token_type = MAX_LEXER_INDEX + 1
-                parsed_code.append(token_type)
+            if token.type == 109:
+                parsed_code += ["CODE_INTEGER"]
+            elif token.type == 111:
+                parsed_code += ["CODE_REAL"]
+            elif token.type == 112:
+                parsed_code += ["CODE_CHAR"]
+            elif token.type == 113:
+                parsed_code += ["CODE_STRING"]
+            elif token.type == -1:
+                parsed_code += ["<eof>"]
+            elif token.type in [4, 5, 6, 7, 8, 9]:  # whitespace and comments and newline
+                pass
+            else:
+                parsed_code += [str(token.text)]
         parsed_codes.append(parsed_code)
     return parsed_codes
 

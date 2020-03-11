@@ -1,5 +1,5 @@
 import random
-from ret_bvae import *
+from bvae import *
 import sys
 sys.path.append("../baselines/RET-IR")
 import retir
@@ -11,7 +11,8 @@ def reciprocal_rank(sorted_indices, golden_idx):
             return 1.0 / (i + 1.0)
 
 
-def evaluate_retrieval(summaries, codes, baseline='ret_ir', random_sample_size=50, num_samples=150):
+def evaluate_retrieval(summaries, codes, bvae_model_path,
+                       baseline='ret_ir', random_sample_size=50, num_samples=150):
     if baseline == 'ret_ir':
         def baseline_model(summary, candidate_summaries):
             summary = retir.shuffleQuery(summary, 0.2)
@@ -21,7 +22,11 @@ def evaluate_retrieval(summaries, codes, baseline='ret_ir', random_sample_size=5
         raise Exception("Invalid baseline specified: %s" % baseline)
     assert len(summaries) == len(codes)
     num_inputs = len(summaries)
-    bvae_model = RetBVAE()
+    bvae_model = create_bvae(bvae_model_path)
+    language_seqifier = load_or_create_seqifier(bvae_model_path + "language_tokenizer.json", bvae_model.l_vocab_size,
+                                                None, None)
+    code_seqifier = load_or_create_seqifier(bvae_model_path + "code_tokenizer.json", bvae_model.c_vocab_size,
+                                            None, None)
     random.seed()
     baseline_reciprocal_ranks = []
     bvae_reciprocal_ranks = []
@@ -32,7 +37,8 @@ def evaluate_retrieval(summaries, codes, baseline='ret_ir', random_sample_size=5
         golden_idx = random.randrange(random_sample_size)
         baseline_sorted_indices = baseline_model(rand_summaries[golden_idx], rand_summaries)
         baseline_reciprocal_ranks.append(reciprocal_rank(baseline_sorted_indices, golden_idx))
-        bvae_sorted_indices = bvae_model.rank_options(rand_summaries[golden_idx], rand_codes)
+        retriever = RetBVAE(bvae_model, rand_codes, language_seqifier, code_seqifier)
+        bvae_sorted_indices = retriever.rank_options(rand_summaries[golden_idx])
         bvae_reciprocal_ranks.append(reciprocal_rank(bvae_sorted_indices, golden_idx))
 
     baseline_mean_reciprocal_rank = np.mean(baseline_reciprocal_ranks)
@@ -44,7 +50,7 @@ def evaluate_retrieval(summaries, codes, baseline='ret_ir', random_sample_size=5
 
 def main():
     summaries, codes = load_iyer_file("../data/iyer_csharp/dev.txt")
-    evaluate_retrieval(summaries, codes)
+    evaluate_retrieval(summaries, codes, "../models/r5/")
 
 
 if __name__ == "__main__":
