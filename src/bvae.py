@@ -7,14 +7,14 @@ import matplotlib.pyplot as plt
 from text_data_utils import *
 
 
-def ret_recon_loss_oh_bow(true, pred_prob, vocab_size):
+def recon_loss_oh_bow(true, pred_prob, vocab_size):
     true_bag_of_words = docs_to_oh_bags_of_words(true, vocab_size)
     recon_all = tf.nn.sigmoid_cross_entropy_with_logits(tf.stop_gradient(true_bag_of_words), pred_prob)
-    recon = tf.reduce_mean(tf.reduce_sum(recon_all, axis=-1)) / 100
+    recon = tf.reduce_mean(tf.reduce_sum(recon_all, axis=-1)) / 10
     return recon
 
 
-def ret_recon_loss_bow(true, pred_prob, vocab_size):
+def recon_loss_bow(true, pred_prob, vocab_size):
     true_bag_of_words = docs_to_bags_of_words(true, vocab_size)
     recon_all = tf.nn.softmax_cross_entropy_with_logits(tf.stop_gradient(true_bag_of_words), pred_prob)
     recon = tf.reduce_mean(recon_all)
@@ -57,6 +57,13 @@ def mpreg_loss(dists, mean_dist):
     return kl_divergence
 
 
+def create_latent_dists(logits, latent_dim):
+    means = logits[:, :latent_dim]
+    stddevs = tf.math.abs(logits[:, latent_dim:])
+    dists = tfp.distributions.Normal(means, stddevs)
+    return dists
+
+
 def docs_to_oh_bags_of_words(docs, vocab_size):
     one_hot = tf.one_hot(docs, vocab_size)
     bags_of_words = tf.reduce_max(one_hot, axis=-2)
@@ -92,10 +99,8 @@ class RecurrentVariationalEncoder(tf.keras.models.Sequential):
         self.latent_dim = latent_dim
 
     def call(self, x, training=None, mask=None):
-        dist = super(RecurrentVariationalEncoder, self).call(x, training=training)
-        mean = dist[:, :self.latent_dim]
-        stddev = tf.math.abs(dist[:, self.latent_dim:])
-        return tfp.distributions.Normal(mean, stddev)
+        logits = super(RecurrentVariationalEncoder, self).call(x, training=training)
+        return create_latent_dists(logits, self.latent_dim)
 
 
 class VariationalEncoder(tf.keras.models.Sequential):
@@ -114,10 +119,9 @@ class VariationalEncoder(tf.keras.models.Sequential):
         self.latent_dim = latent_dim
 
     def call(self, x, training=None, mask=None):
-        dist = super(VariationalEncoder, self).call(x, training=training)
-        mean = dist[:, :self.latent_dim]
-        stddev = tf.math.abs(dist[:, self.latent_dim:])
-        return tfp.distributions.Normal(mean, stddev)
+        logits = super(VariationalEncoder, self).call(x, training=training)
+        dists = create_latent_dists(logits, self.latent_dim)
+        return dists
 
 
 class VariationalEncoderNoEmbedding(tf.keras.models.Sequential):
@@ -134,10 +138,9 @@ class VariationalEncoderNoEmbedding(tf.keras.models.Sequential):
         self.latent_dim = latent_dim
 
     def call(self, x, training=None, mask=None):
-        dist = super(VariationalEncoderNoEmbedding, self).call(x, training=training)
-        mean = dist[:, :self.latent_dim]
-        stddev = tf.math.abs(dist[:, self.latent_dim:])
-        return tfp.distributions.Normal(mean, stddev)
+        logits = super(VariationalEncoderNoEmbedding, self).call(x, training=training)
+        dists = create_latent_dists(logits, self.latent_dim)
+        return dists
 
 
 class Decoder(tf.keras.models.Sequential):
@@ -179,13 +182,13 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
             c_enc_model = VariationalEncoder
             l_dec_model = Decoder
             c_dec_model = Decoder
-            self.recon_loss = ret_recon_loss_oh_bow
+            self.recon_loss = recon_loss_bow
         elif architecture == 'mlp_no_embeddings':
             l_enc_model = VariationalEncoderNoEmbedding
             c_enc_model = VariationalEncoderNoEmbedding
             l_dec_model = Decoder
             c_dec_model = Decoder
-            self.recon_loss = ret_recon_loss_bow
+            self.recon_loss = recon_loss_bow
         else:
             raise Exception("Invalid architecture specification %s" % architecture)
         self.language_encoder = l_enc_model(language_dim, latent_dim, l_vocab_size, l_emb_dim,
@@ -228,7 +231,7 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
         return dec_language, dec_source_code
 
 
-def create_bvae(model_path):
+def create_bvae_from_json(model_path):
     if not os.path.isfile(model_path + "model_description.json"):
         raise FileNotFoundError("Model description not found")
 
@@ -257,11 +260,12 @@ def create_bvae(model_path):
     return model
 
 
-def load_or_create_seqifier(file_path, vocab_size, training_texts, tokenization):
+def load_or_create_seqifier(file_path, vocab_size, training_texts=None, tokenization=None):
     if os.path.isfile(file_path):
         with open(file_path, 'r') as json_file:
             tokenizer = tf.keras.preprocessing.text.tokenizer_from_json(json_file.read())
     else:
+        print("Could not find the seqifier save file %s. Creating the seqifier..." % file_path)
         assert training_texts is not None
         assert tokenization is not None
         training_texts = tokenization(training_texts)
@@ -341,6 +345,7 @@ class RetBVAE(object):
 
     def interactive_demo(self):
         while True:
+            print()
             input_summary = input("Input Summary: ")
             if input_summary == "exit":
                 break
@@ -350,34 +355,46 @@ class RetBVAE(object):
 
 def main(model_path='../models/r5/'):
 
+    print("Loading dataset...")
     train_summaries, train_codes = load_iyer_file("../data/iyer_csharp/train.txt")
     val_summaries, val_codes = load_iyer_file("../data/iyer_csharp/valid.txt")
     test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt")
 
-    model = create_bvae(model_path)
-    language_tokenizer = load_or_create_seqifier(model_path + "language_tokenizer.json",
-                                                 model.l_vocab_size, train_summaries,
-                                                 lambda s: tokenize_texts(s))
-    code_tokenizer = load_or_create_seqifier(model_path + "code_tokenizer.json",
-                                             model.c_vocab_size, train_codes,
-                                             lambda c: parse_codes(c, model.c_dim))
+    print("Creating model from JSON description...")
+    model = create_bvae_from_json(model_path)
 
-    train_summaries, train_codes = process_dataset(train_summaries, train_codes, language_tokenizer, code_tokenizer,
-                                                   model.l_dim, model.c_dim)
-    val_summaries, val_codes = process_dataset(val_summaries, val_codes, language_tokenizer, code_tokenizer,
-                                               model.l_dim, model.c_dim)
-    test_summaries, test_codes = process_dataset(test_summaries, test_codes, language_tokenizer, code_tokenizer,
-                                                 model.l_dim, model.c_dim)
+    print("Loading seqifiers, which are responsible for turning texts into sequences of integers...")
+    language_seqifier = load_or_create_seqifier(model_path + "language_seqifier.json",
+                                                model.l_vocab_size,
+                                                training_texts=train_summaries,
+                                                tokenization=lambda s: tokenize_texts(s))
+    code_seqifier = load_or_create_seqifier(model_path + "code_seqifier.json",
+                                            model.c_vocab_size,
+                                            training_texts=train_codes,
+                                            tokenization=lambda c: parse_codes(c, model.c_dim))
 
     if not os.path.isfile(model_path + "checkpoint"):
+        print("The model is not trained yet.")
+
+        print("Preparing datasets for training...")
+        train_summaries, train_codes = process_dataset(train_summaries, train_codes, language_seqifier, code_seqifier,
+                                                       model.l_dim, model.c_dim)
+        val_summaries, val_codes = process_dataset(val_summaries, val_codes, language_seqifier, code_seqifier,
+                                                   model.l_dim, model.c_dim)
+
+        print("Starting training now...")
         train_bvae(model, model_path, train_summaries, train_codes, val_summaries, val_codes)
 
+    print("Preparing test dataset for evaluation...")
+    test_summaries, test_codes = process_dataset(test_summaries, test_codes, language_seqifier, code_seqifier,
+                                                 model.l_dim, model.c_dim)
     test_loss = model.evaluate((test_summaries, test_codes), None, verbose=False)
     print("Test loss: " + str(test_loss))
 
+    print("Preparing interactive demo...")
     dev_summaries, dev_codes = load_iyer_file("../data/iyer_csharp/dev.txt")
+    ret_bvae = RetBVAE(model, dev_codes, language_seqifier, code_seqifier)
 
-    ret_bvae = RetBVAE(model, dev_codes, language_tokenizer, code_tokenizer)
     ret_bvae.interactive_demo()
 
 

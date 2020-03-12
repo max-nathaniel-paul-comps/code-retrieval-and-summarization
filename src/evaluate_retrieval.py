@@ -1,4 +1,5 @@
 import random
+from tqdm import tqdm
 from bvae import *
 import sys
 sys.path.append("../baselines/RET-IR")
@@ -20,23 +21,28 @@ def evaluate_retrieval(summaries, codes, bvae_model_path,
             return retir.retir_pt(summary, candidate_summaries, random_sample_size)
     else:
         raise Exception("Invalid baseline specified: %s" % baseline)
+
     assert len(summaries) == len(codes)
     num_inputs = len(summaries)
-    bvae_model = create_bvae(bvae_model_path)
-    language_seqifier = load_or_create_seqifier(bvae_model_path + "language_tokenizer.json", bvae_model.l_vocab_size,
-                                                None, None)
-    code_seqifier = load_or_create_seqifier(bvae_model_path + "code_tokenizer.json", bvae_model.c_vocab_size,
-                                            None, None)
+
+    bvae_model = create_bvae_from_json(bvae_model_path)
+
+    language_seqifier = load_or_create_seqifier(bvae_model_path + "language_seqifier.json", bvae_model.l_vocab_size)
+    code_seqifier = load_or_create_seqifier(bvae_model_path + "code_seqifier.json", bvae_model.c_vocab_size)
+
     random.seed()
     baseline_reciprocal_ranks = []
     bvae_reciprocal_ranks = []
-    for i in range(num_samples):
+    for _ in tqdm(range(num_samples)):
         rand_idx = random.randrange(0, num_inputs - random_sample_size)
         rand_summaries = summaries[rand_idx: rand_idx + random_sample_size]
         rand_codes = codes[rand_idx: rand_idx + random_sample_size]
+
         golden_idx = random.randrange(random_sample_size)
+
         baseline_sorted_indices = baseline_model(rand_summaries[golden_idx], rand_summaries)
         baseline_reciprocal_ranks.append(reciprocal_rank(baseline_sorted_indices, golden_idx))
+
         retriever = RetBVAE(bvae_model, rand_codes, language_seqifier, code_seqifier)
         bvae_sorted_indices = retriever.rank_options(rand_summaries[golden_idx])
         bvae_reciprocal_ranks.append(reciprocal_rank(bvae_sorted_indices, golden_idx))
