@@ -2,7 +2,6 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import os
 import json
-import numpy as np
 import matplotlib.pyplot as plt
 from text_data_utils import *
 
@@ -110,9 +109,9 @@ class VariationalEncoder(tf.keras.models.Sequential):
                 tf.keras.layers.Embedding(vocab_size, emb_dim, input_length=input_dim),
                 tf.keras.layers.GlobalAveragePooling1D(),
                 tf.keras.layers.Activation('tanh'),
-                tf.keras.layers.Dense(latent_dim * 2),
+                tf.keras.layers.Dense(latent_dim * 2, name='emb_to_hidden'),
                 tf.keras.layers.LeakyReLU(),
-                tf.keras.layers.Dense(latent_dim * 2)
+                tf.keras.layers.Dense(latent_dim * 2, name='hidden_to_encoded')
             ],
             name=name
         )
@@ -147,9 +146,9 @@ class Decoder(tf.keras.models.Sequential):
     def __init__(self, latent_dim, reconstructed_dim, vocab_size, name='decoder'):
         super(Decoder, self).__init__(
             [
-                tf.keras.layers.Dense(latent_dim * 2, input_dim=latent_dim),
+                tf.keras.layers.Dense(latent_dim * 2, input_dim=latent_dim, name='encoded_to_hidden'),
                 tf.keras.layers.LeakyReLU(),
-                tf.keras.layers.Dense(vocab_size)
+                tf.keras.layers.Dense(vocab_size, name='hidden_to_decoded')
             ],
             name=name
         )
@@ -294,15 +293,16 @@ def process_dataset(summaries, codes, language_seqifier, code_seqifier, l_dim, c
 
 def train_bvae(model, model_path, train_summaries, train_codes, val_summaries, val_codes):
 
+    tboard_callback = tf.keras.callbacks.TensorBoard(log_dir=os.path.abspath(model_path + "tboard"), histogram_freq=1)
     checkpoints = tf.keras.callbacks.ModelCheckpoint(model_path + 'model_checkpoint.ckpt',
                                                      verbose=True, save_best_only=True,
                                                      monitor='val_loss', save_freq='epoch', save_weights_only=True)
     reduce_on_plateau = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=0)
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
 
-    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=6,
+    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=50,
                         validation_data=((val_summaries, val_codes), None),
-                        callbacks=[checkpoints, reduce_on_plateau, early_stopping])
+                        callbacks=[tboard_callback, checkpoints, reduce_on_plateau, early_stopping])
 
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
@@ -314,11 +314,13 @@ def train_bvae(model, model_path, train_summaries, train_codes, val_summaries, v
 
 
 class RetBVAE(object):
-    def __init__(self, model, code_snippets, language_seqifier, code_seqifier):
+    def __init__(self, model, code_snippets, language_seqifier, code_seqifier, leave_out_oversize=False):
         self.model = model
         self.raw_codes = code_snippets
         codes_tok = parse_codes(code_snippets, model.c_dim)
         codes_seq = code_seqifier.texts_to_sequences(codes_tok)
+        if leave_out_oversize:
+            codes_seq = [seq for seq in codes_seq if len(seq) <= model.c_dim]
         codes_padded = pad_sequences(codes_seq, maxlen=model.c_dim, padding='post', value=0)
         self.codes = model.source_code_encoder(codes_padded)
         self.code_snippets = code_snippets
@@ -393,7 +395,7 @@ def main(model_path='../models/r5/'):
 
     print("Preparing interactive demo...")
     dev_summaries, dev_codes = load_iyer_file("../data/iyer_csharp/dev.txt")
-    ret_bvae = RetBVAE(model, dev_codes, language_seqifier, code_seqifier)
+    ret_bvae = RetBVAE(model, dev_codes, language_seqifier, code_seqifier, leave_out_oversize=True)
 
     ret_bvae.interactive_demo()
 

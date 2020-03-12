@@ -1,4 +1,5 @@
 import random
+import numpy as np
 from tqdm import tqdm
 from bvae import *
 import sys

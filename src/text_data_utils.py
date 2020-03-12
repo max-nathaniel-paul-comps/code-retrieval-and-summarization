@@ -114,7 +114,7 @@ def parse_codes(codes: List[str], max_len: int) -> List[List[int]]:
     for code in codes:
         lexer = CSharp4Lexer(InputStream(code))
         token_stream = CommonTokenStream(lexer)
-        token_stream.fetch(max_len + 1)  # We fetch one more than the max len so we can detect oversize codes later...
+        token_stream.fetch(3 * max_len)  # We fetch more than the max len so we can detect oversize codes later...
         parsed_code = []
         for token in token_stream.tokens:
             if token.type == 109:
