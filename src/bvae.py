@@ -230,7 +230,7 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
         return dec_language, dec_source_code
 
 
-def create_bvae_from_json(model_path):
+def load_or_create_model(model_path):
     if not os.path.isfile(model_path + "model_description.json"):
         raise FileNotFoundError("Model description not found")
 
@@ -296,11 +296,11 @@ def train_bvae(model, model_path, train_summaries, train_codes, val_summaries, v
     tboard_callback = tf.keras.callbacks.TensorBoard(log_dir=os.path.abspath(model_path + "tboard"), histogram_freq=1)
     checkpoints = tf.keras.callbacks.ModelCheckpoint(model_path + 'model_checkpoint.ckpt',
                                                      verbose=True, save_best_only=True,
-                                                     monitor='val_loss', save_freq='epoch', save_weights_only=True)
+                                                     monitor='val_loss', save_freq='epoch')
     reduce_on_plateau = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=0)
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
 
-    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=50,
+    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=100,
                         validation_data=((val_summaries, val_codes), None),
                         callbacks=[tboard_callback, checkpoints, reduce_on_plateau, early_stopping])
 
@@ -355,7 +355,7 @@ class RetBVAE(object):
             print("Retrieved Code: %s" % self.raw_codes[ranked_options[0]])
 
 
-def main(model_path='../models/r5/'):
+def main(model_path='../models/r5/', continue_training=False):
 
     print("Loading dataset...")
     train_summaries, train_codes = load_iyer_file("../data/iyer_csharp/train.txt")
@@ -363,7 +363,7 @@ def main(model_path='../models/r5/'):
     test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt")
 
     print("Creating model from JSON description...")
-    model = create_bvae_from_json(model_path)
+    model = load_or_create_model(model_path)
 
     print("Loading seqifiers, which are responsible for turning texts into sequences of integers...")
     language_seqifier = load_or_create_seqifier(model_path + "language_seqifier.json",
@@ -378,6 +378,7 @@ def main(model_path='../models/r5/'):
     if not os.path.isfile(model_path + "checkpoint"):
         print("The model is not trained yet.")
 
+    if not os.path.isfile(model_path + "checkpoint") or continue_training:
         print("Preparing datasets for training...")
         train_summaries, train_codes = process_dataset(train_summaries, train_codes, language_seqifier, code_seqifier,
                                                        model.l_dim, model.c_dim)

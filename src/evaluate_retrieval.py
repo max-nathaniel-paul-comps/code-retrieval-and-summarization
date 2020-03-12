@@ -26,7 +26,7 @@ def evaluate_retrieval(summaries, codes, bvae_model_path,
     assert len(summaries) == len(codes)
     num_inputs = len(summaries)
 
-    bvae_model = create_bvae_from_json(bvae_model_path)
+    bvae_model = load_or_create_model(bvae_model_path)
 
     language_seqifier = load_or_create_seqifier(bvae_model_path + "language_seqifier.json", bvae_model.l_vocab_size)
     code_seqifier = load_or_create_seqifier(bvae_model_path + "code_seqifier.json", bvae_model.c_vocab_size)
