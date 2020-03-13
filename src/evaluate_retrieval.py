@@ -14,12 +14,15 @@ def reciprocal_rank(sorted_indices, golden_idx):
 
 
 def evaluate_retrieval(summaries, codes, bvae_model_path,
-                       baseline='ret_ir', random_sample_size=50, num_samples=150):
+                       baseline='random', random_sample_size=50, num_samples=1000):
     if baseline == 'ret_ir':
-        def baseline_model(summary, candidate_summaries):
+        def baseline_model(summary, candidate_summaries, candidate_codes):
             summary = retir.shuffleQuery(summary, 0.2)
             # Calling the version for pretokenized because ret-ir performs better at character-level for some reason
             return retir.retir_pt(summary, candidate_summaries, random_sample_size)
+    elif baseline == 'random':
+        def baseline_model(summary, candidate_summaries, candidate_codes):
+            return random.sample(range(len(candidate_summaries)), len(candidate_summaries))
     else:
         raise Exception("Invalid baseline specified: %s" % baseline)
 
@@ -41,7 +44,7 @@ def evaluate_retrieval(summaries, codes, bvae_model_path,
 
         golden_idx = random.randrange(random_sample_size)
 
-        baseline_sorted_indices = baseline_model(rand_summaries[golden_idx], rand_summaries)
+        baseline_sorted_indices = baseline_model(rand_summaries[golden_idx], rand_summaries, rand_codes)
         baseline_reciprocal_ranks.append(reciprocal_rank(baseline_sorted_indices, golden_idx))
 
         retriever = RetBVAE(bvae_model, rand_codes, language_seqifier, code_seqifier)
@@ -57,7 +60,7 @@ def evaluate_retrieval(summaries, codes, bvae_model_path,
 
 def main():
     summaries, codes = load_iyer_file("../data/iyer_csharp/dev.txt")
-    evaluate_retrieval(summaries, codes, "../models/r5/")
+    evaluate_retrieval(summaries, codes, "../models/r6/")
 
 
 if __name__ == "__main__":

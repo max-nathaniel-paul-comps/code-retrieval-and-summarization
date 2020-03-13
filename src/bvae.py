@@ -230,7 +230,7 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
         return dec_language, dec_source_code
 
 
-def load_or_create_model(model_path):
+def load_or_create_model(model_path, expect_existing_checkpoint=False):
     if not os.path.isfile(model_path + "model_description.json"):
         raise FileNotFoundError("Model description not found")
 
@@ -255,6 +255,8 @@ def load_or_create_model(model_path):
 
     if os.path.isfile(model_path + "checkpoint"):
         model.load_weights(model_path + "model_checkpoint.ckpt")
+    else:
+        assert not expect_existing_checkpoint, "Failed to load model checkpoint. Did you train the model yet?"
 
     return model
 
@@ -289,28 +291,6 @@ def process_dataset(summaries, codes, language_seqifier, code_seqifier, l_dim, c
     summaries_trim, codes_trim = trim_to_len(summaries_seq, codes_seq, l_dim, c_dim,
                                              oversize_sequence_behavior=oversize_sequence_behavior)
     return summaries_trim, codes_trim
-
-
-def train_bvae(model, model_path, train_summaries, train_codes, val_summaries, val_codes):
-
-    tboard_callback = tf.keras.callbacks.TensorBoard(log_dir=os.path.abspath(model_path + "tboard"), histogram_freq=1)
-    checkpoints = tf.keras.callbacks.ModelCheckpoint(model_path + 'model_checkpoint.ckpt',
-                                                     verbose=True, save_best_only=True,
-                                                     monitor='val_loss', save_freq='epoch')
-    reduce_on_plateau = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=0)
-    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
-
-    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=100,
-                        validation_data=((val_summaries, val_codes), None),
-                        callbacks=[tboard_callback, checkpoints, reduce_on_plateau, early_stopping])
-
-    plt.plot(history.history['loss'])
-    plt.plot(history.history['val_loss'])
-    plt.title('Model Loss')
-    plt.ylabel('loss')
-    plt.xlabel('epoch')
-    plt.legend(['train', 'val'], loc='upper left')
-    plt.savefig(model_path + 'performance_plot.png')
 
 
 class RetBVAE(object):
@@ -355,46 +335,25 @@ class RetBVAE(object):
             print("Retrieved Code: %s" % self.raw_codes[ranked_options[0]])
 
 
-def main(model_path='../models/r5/', continue_training=False):
+def main(model_path='../models/r7/'):
 
-    print("Loading dataset...")
-    train_summaries, train_codes = load_iyer_file("../data/iyer_csharp/train.txt")
-    val_summaries, val_codes = load_iyer_file("../data/iyer_csharp/valid.txt")
-    test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt")
-
-    print("Creating model from JSON description...")
-    model = load_or_create_model(model_path)
+    print("Loading model...")
+    model = load_or_create_model(model_path, expect_existing_checkpoint=True)
 
     print("Loading seqifiers, which are responsible for turning texts into sequences of integers...")
     language_seqifier = load_or_create_seqifier(model_path + "language_seqifier.json",
-                                                model.l_vocab_size,
-                                                training_texts=train_summaries,
-                                                tokenization=lambda s: tokenize_texts(s))
+                                                model.l_vocab_size)
     code_seqifier = load_or_create_seqifier(model_path + "code_seqifier.json",
-                                            model.c_vocab_size,
-                                            training_texts=train_codes,
-                                            tokenization=lambda c: parse_codes(c, model.c_dim))
+                                            model.c_vocab_size)
 
-    if not os.path.isfile(model_path + "checkpoint"):
-        print("The model is not trained yet.")
-
-    if not os.path.isfile(model_path + "checkpoint") or continue_training:
-        print("Preparing datasets for training...")
-        train_summaries, train_codes = process_dataset(train_summaries, train_codes, language_seqifier, code_seqifier,
-                                                       model.l_dim, model.c_dim)
-        val_summaries, val_codes = process_dataset(val_summaries, val_codes, language_seqifier, code_seqifier,
-                                                   model.l_dim, model.c_dim)
-
-        print("Starting training now...")
-        train_bvae(model, model_path, train_summaries, train_codes, val_summaries, val_codes)
-
-    print("Preparing test dataset for evaluation...")
+    print("Loading test dataset for evaluation...")
+    test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt")
     test_summaries, test_codes = process_dataset(test_summaries, test_codes, language_seqifier, code_seqifier,
                                                  model.l_dim, model.c_dim)
     test_loss = model.evaluate((test_summaries, test_codes), None, verbose=False)
     print("Test loss: " + str(test_loss))
 
-    print("Preparing interactive demo...")
+    print("Preparing interactive retrieval demo...")
     dev_summaries, dev_codes = load_iyer_file("../data/iyer_csharp/dev.txt")
     ret_bvae = RetBVAE(model, dev_codes, language_seqifier, code_seqifier, leave_out_oversize=True)
 
