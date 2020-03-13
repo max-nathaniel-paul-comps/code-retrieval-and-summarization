@@ -107,6 +107,7 @@ class VariationalEncoder(tf.keras.models.Sequential):
         super(VariationalEncoder, self).__init__(
             [
                 tf.keras.layers.Embedding(vocab_size, emb_dim, input_length=input_dim),
+                tf.keras.layers.Dropout(input_dropout, noise_shape=(None, input_dim, 1)),
                 tf.keras.layers.GlobalAveragePooling1D(),
                 tf.keras.layers.Activation('tanh'),
                 tf.keras.layers.Dense(latent_dim * 2, name='emb_to_hidden'),
@@ -335,7 +336,7 @@ class RetBVAE(object):
             print("Retrieved Code: %s" % self.raw_codes[ranked_options[0]])
 
 
-def main(model_path='../models/r7/'):
+def main(model_path='../models/r8/'):
 
     print("Loading model...")
     model = load_or_create_model(model_path, expect_existing_checkpoint=True)

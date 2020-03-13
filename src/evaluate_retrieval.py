@@ -60,7 +60,7 @@ def evaluate_retrieval(summaries, codes, bvae_model_path,
 
 def main():
     summaries, codes = load_iyer_file("../data/iyer_csharp/dev.txt")
-    evaluate_retrieval(summaries, codes, "../models/r6/")
+    evaluate_retrieval(summaries, codes, "../models/r8/")
 
 
 if __name__ == "__main__":
