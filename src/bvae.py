@@ -2,7 +2,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import os
 import json
-import matplotlib.pyplot as plt
+from seqifier import Seqifier
 from text_data_utils import *
 
 
@@ -231,7 +231,7 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
         return dec_language, dec_source_code
 
 
-def load_or_create_model(model_path, expect_existing_checkpoint=False):
+def load_or_create_model(model_path, l_vocab_size, c_vocab_size, expect_existing_checkpoint=False):
     if not os.path.isfile(model_path + "model_description.json"):
         raise FileNotFoundError("Model description not found")
 
@@ -239,10 +239,8 @@ def load_or_create_model(model_path, expect_existing_checkpoint=False):
         model_description = json.load(json_file)
 
     l_dim = model_description['l_dim']
-    l_vocab_size = model_description['l_vocab_size']
     l_emb_dim = model_description['l_emb_dim']
     c_dim = model_description['c_dim']
-    c_vocab_size = model_description['c_vocab_size']
     c_emb_dim = model_description['c_emb_dim']
     latent_dim = model_description['latent_dim']
     dropout_rate = model_description['dropout_rate']
@@ -262,33 +260,11 @@ def load_or_create_model(model_path, expect_existing_checkpoint=False):
     return model
 
 
-def load_or_create_seqifier(file_path, vocab_size, training_texts=None, tokenization=None):
-    if os.path.isfile(file_path):
-        with open(file_path, 'r') as json_file:
-            tokenizer = tf.keras.preprocessing.text.tokenizer_from_json(json_file.read())
-    else:
-        print("Could not find the seqifier save file %s. Creating the seqifier..." % file_path)
-        assert training_texts is not None
-        assert tokenization is not None
-        training_texts = tokenization(training_texts)
-        tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=vocab_size, oov_token='<unk>',
-                                                          filters='', lower=False)
-        tokenizer.fit_on_texts(training_texts)
-        out_json = tokenizer.to_json()
-        with open(file_path, 'w') as json_file:
-            json_file.write(out_json)
-
-    assert tokenizer.num_words == vocab_size
-    return tokenizer
-
-
 def process_dataset(summaries, codes, language_seqifier, code_seqifier, l_dim, c_dim,
                     oversize_sequence_behavior='leave_out'):
     assert len(summaries) == len(codes)
-    summaries_tok = tokenize_texts(summaries)
-    summaries_seq = language_seqifier.texts_to_sequences(summaries_tok)
-    codes_tok = parse_codes(codes, c_dim)
-    codes_seq = code_seqifier.texts_to_sequences(codes_tok)
+    summaries_seq = language_seqifier.seqify_texts(summaries)
+    codes_seq = code_seqifier.seqify_texts(codes)
     summaries_trim, codes_trim = trim_to_len(summaries_seq, codes_seq, l_dim, c_dim,
                                              oversize_sequence_behavior=oversize_sequence_behavior)
     return summaries_trim, codes_trim
@@ -298,8 +274,7 @@ class RetBVAE(object):
     def __init__(self, model, code_snippets, language_seqifier, code_seqifier, leave_out_oversize=False):
         self.model = model
         self.raw_codes = code_snippets
-        codes_tok = parse_codes(code_snippets, model.c_dim)
-        codes_seq = code_seqifier.texts_to_sequences(codes_tok)
+        codes_seq = code_seqifier.seqify_texts(code_snippets)
         if leave_out_oversize:
             codes_seq = [seq for seq in codes_seq if len(seq) <= model.c_dim]
         codes_padded = pad_sequences(codes_seq, maxlen=model.c_dim, padding='post', value=0)
@@ -310,8 +285,7 @@ class RetBVAE(object):
 
     def get_similarities(self, query):
         query_prep = preprocess_language(query)
-        query_tok = tokenize_text(query_prep)
-        query_seq = self.language_seqifier.texts_to_sequences([query_tok])
+        query_seq = self.language_seqifier.seqify_texts([query_prep])
         query_padded = pad_sequences(query_seq, maxlen=self.model.l_dim, padding='post', value=0)
         query_encoded = self.model.language_encoder(query_padded)
         similarities_all = tfp.distributions.kl_divergence(
@@ -336,16 +310,19 @@ class RetBVAE(object):
             print("Retrieved Code: %s" % self.raw_codes[ranked_options[0]])
 
 
-def main(model_path='../models/r8/'):
-
-    print("Loading model...")
-    model = load_or_create_model(model_path, expect_existing_checkpoint=True)
+def main(model_path='../models/r3/'):
 
     print("Loading seqifiers, which are responsible for turning texts into sequences of integers...")
-    language_seqifier = load_or_create_seqifier(model_path + "language_seqifier.json",
-                                                model.l_vocab_size)
-    code_seqifier = load_or_create_seqifier(model_path + "code_seqifier.json",
-                                            model.c_vocab_size)
+    with open(model_path + "seqifiers_description.json") as seq_desc_json:
+        seqifiers_description = json.load(seq_desc_json)
+    language_seqifier = Seqifier(seqifiers_description['language_seq_type'],
+                                 model_path + seqifiers_description['language_seq_path'])
+    code_seqifier = Seqifier(seqifiers_description['source_code_seq_type'],
+                             model_path + seqifiers_description['source_code_seq_path'])
+
+    print("Loading model...")
+    model = load_or_create_model(model_path, language_seqifier.vocab_size, code_seqifier.vocab_size,
+                                 expect_existing_checkpoint=True)
 
     print("Loading test dataset for evaluation...")
     test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt")

@@ -29,10 +29,15 @@ def evaluate_retrieval(summaries, codes, bvae_model_path,
     assert len(summaries) == len(codes)
     num_inputs = len(summaries)
 
-    bvae_model = load_or_create_model(bvae_model_path)
+    with open(bvae_model_path + "seqifiers_description.json") as seq_desc_json:
+        seqifiers_description = json.load(seq_desc_json)
+    language_seqifier = Seqifier(seqifiers_description['language_seq_type'],
+                                 bvae_model_path + seqifiers_description['language_seq_path'])
+    code_seqifier = Seqifier(seqifiers_description['source_code_seq_type'],
+                             bvae_model_path + seqifiers_description['source_code_seq_path'])
 
-    language_seqifier = load_or_create_seqifier(bvae_model_path + "language_seqifier.json", bvae_model.l_vocab_size)
-    code_seqifier = load_or_create_seqifier(bvae_model_path + "code_seqifier.json", bvae_model.c_vocab_size)
+    bvae_model = load_or_create_model(bvae_model_path, language_seqifier.vocab_size, code_seqifier.vocab_size,
+                                      expect_existing_checkpoint=True)
 
     random.seed()
     baseline_reciprocal_ranks = []
@@ -60,7 +65,7 @@ def evaluate_retrieval(summaries, codes, bvae_model_path,
 
 def main():
     summaries, codes = load_iyer_file("../data/iyer_csharp/dev.txt")
-    evaluate_retrieval(summaries, codes, "../models/r8/")
+    evaluate_retrieval(summaries, codes, "../models/r3/")
 
 
 if __name__ == "__main__":

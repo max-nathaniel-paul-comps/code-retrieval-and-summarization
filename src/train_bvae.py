@@ -10,36 +10,30 @@ def train_bvae(model, model_path, train_summaries, train_codes, val_summaries, v
     reduce_on_plateau = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=0)
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
 
-    history = model.fit((train_summaries, train_codes), None, batch_size=128, epochs=100,
-                        validation_data=((val_summaries, val_codes), None),
-                        callbacks=[tboard_callback, checkpoints, reduce_on_plateau, early_stopping])
-
-    plt.plot(history.history['loss'])
-    plt.plot(history.history['val_loss'])
-    plt.title('Model Loss')
-    plt.ylabel('loss')
-    plt.xlabel('epoch')
-    plt.legend(['train', 'val'], loc='upper left')
-    plt.savefig(model_path + 'performance_plot.png')
+    model.fit((train_summaries, train_codes), None, batch_size=128, epochs=100,
+              validation_data=((val_summaries, val_codes), None),
+              callbacks=[tboard_callback, checkpoints, reduce_on_plateau, early_stopping])
 
 
-def main(model_path="../models/r8/"):
+def main(model_path="../models/r3/"):
     print("Loading dataset...")
     train_summaries, train_codes = load_iyer_file("../data/iyer_csharp/train.txt")
     val_summaries, val_codes = load_iyer_file("../data/iyer_csharp/valid.txt")
 
-    print("Creating model from JSON description...")
-    model = load_or_create_model(model_path)
-
     print("Loading seqifiers, which are responsible for turning texts into sequences of integers...")
-    language_seqifier = load_or_create_seqifier(model_path + "language_seqifier.json",
-                                                model.l_vocab_size,
-                                                training_texts=train_summaries,
-                                                tokenization=lambda s: tokenize_texts(s))
-    code_seqifier = load_or_create_seqifier(model_path + "code_seqifier.json",
-                                            model.c_vocab_size,
-                                            training_texts=train_codes,
-                                            tokenization=lambda c: parse_codes(c, model.c_dim))
+    with open(model_path + "seqifiers_description.json") as seq_desc_json:
+        seqifiers_description = json.load(seq_desc_json)
+    language_seqifier = Seqifier(seqifiers_description['language_seq_type'],
+                                 model_path + seqifiers_description['language_seq_path'],
+                                 training_texts=train_summaries,
+                                 target_vocab_size=seqifiers_description['language_target_vocab_size'])
+    code_seqifier = Seqifier(seqifiers_description['source_code_seq_type'],
+                             model_path + seqifiers_description['source_code_seq_path'],
+                             training_texts=train_codes,
+                             target_vocab_size=seqifiers_description['source_code_target_vocab_size'])
+
+    print("Creating model from JSON description...")
+    model = load_or_create_model(model_path, language_seqifier.vocab_size, code_seqifier.vocab_size)
 
     if os.path.isfile(model_path + "checkpoint"):
         print("The model has already been trained, and training will continue.")

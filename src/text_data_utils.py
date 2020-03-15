@@ -109,7 +109,7 @@ def load_iyer_file(filename: str) -> Tuple[List[str], List[str]]:
     return summaries, codes
 
 
-def parse_codes(codes: List[str], max_len: int) -> List[List[int]]:
+def parse_codes(codes: List[str], max_len: int = 1000) -> List[List[int]]:
     parsed_codes = []
     for code in codes:
         lexer = CSharp4Lexer(InputStream(code))
@@ -140,6 +140,16 @@ def tokenize_texts(texts: List[str]) -> List[List[str]]:
     for text in texts:
         tokenized.append(tokenize_text(text))
     return tokenized
+
+
+def eof_text(text: str) -> str:
+    text = text + "<eof>"
+    return text
+
+
+def eof_texts(texts: List[str]) -> List[str]:
+    texts = [eof_text(text) for text in texts]
+    return texts
 
 
 def main():
