@@ -84,9 +84,9 @@ class BagOfWords(tf.keras.layers.Layer):
         return docs_to_bags_of_words(inputs, self.vocab_size)
 
 
-class RecurrentVariationalEncoder(tf.keras.models.Sequential):
+class RecurrentEncoder(tf.keras.models.Sequential):
     def __init__(self, input_dim, latent_dim, vocab_size, emb_dim, input_dropout=0.05, name='gru_variational_encoder'):
-        super(RecurrentVariationalEncoder, self).__init__(
+        super(RecurrentEncoder, self).__init__(
             [
                 tf.keras.layers.Embedding(vocab_size, emb_dim, input_length=input_dim),
                 tf.keras.layers.Dropout(input_dropout, noise_shape=(None, input_dim, 1)),
@@ -98,13 +98,13 @@ class RecurrentVariationalEncoder(tf.keras.models.Sequential):
         self.latent_dim = latent_dim
 
     def call(self, x, training=None, mask=None):
-        logits = super(RecurrentVariationalEncoder, self).call(x, training=training)
+        logits = super(RecurrentEncoder, self).call(x, training=training)
         return create_latent_dists(logits, self.latent_dim)
 
 
-class VariationalEncoder(tf.keras.models.Sequential):
+class MlpBowEncoder(tf.keras.models.Sequential):
     def __init__(self, input_dim, latent_dim, vocab_size, emb_dim, input_dropout=0.05, name='variational_encoder'):
-        super(VariationalEncoder, self).__init__(
+        super(MlpBowEncoder, self).__init__(
             [
                 tf.keras.layers.Embedding(vocab_size, emb_dim, input_length=input_dim),
                 tf.keras.layers.Dropout(input_dropout, noise_shape=(None, input_dim, 1)),
@@ -119,14 +119,14 @@ class VariationalEncoder(tf.keras.models.Sequential):
         self.latent_dim = latent_dim
 
     def call(self, x, training=None, mask=None):
-        logits = super(VariationalEncoder, self).call(x, training=training)
+        logits = super(MlpBowEncoder, self).call(x, training=training)
         dists = create_latent_dists(logits, self.latent_dim)
         return dists
 
 
-class VariationalEncoderNoEmbedding(tf.keras.models.Sequential):
+class MlpBowNoEmbEncoder(tf.keras.models.Sequential):
     def __init__(self, input_dim, latent_dim, vocab_size, emb_dim, input_dropout=0.05, name='variational_encoder'):
-        super(VariationalEncoderNoEmbedding, self).__init__(
+        super(MlpBowNoEmbEncoder, self).__init__(
             [
                 BagOfWords(vocab_size),
                 tf.keras.layers.Dense(latent_dim * 2),
@@ -138,14 +138,14 @@ class VariationalEncoderNoEmbedding(tf.keras.models.Sequential):
         self.latent_dim = latent_dim
 
     def call(self, x, training=None, mask=None):
-        logits = super(VariationalEncoderNoEmbedding, self).call(x, training=training)
+        logits = super(MlpBowNoEmbEncoder, self).call(x, training=training)
         dists = create_latent_dists(logits, self.latent_dim)
         return dists
 
 
-class Decoder(tf.keras.models.Sequential):
+class MlpBowDecoder(tf.keras.models.Sequential):
     def __init__(self, latent_dim, reconstructed_dim, vocab_size, name='decoder'):
-        super(Decoder, self).__init__(
+        super(MlpBowDecoder, self).__init__(
             [
                 tf.keras.layers.Dense(latent_dim * 2, input_dim=latent_dim, name='encoded_to_hidden'),
                 tf.keras.layers.LeakyReLU(),
@@ -167,42 +167,73 @@ class RecurrentDecoder(tf.keras.models.Sequential):
         )
 
 
+encoders = {
+    'mlp_bow': MlpBowEncoder,
+    'mlp_bow_no_emb': MlpBowNoEmbEncoder,
+    'recurrent': RecurrentEncoder
+}
+
+decoders = {
+    'mlp_bow': MlpBowDecoder,
+    'recurrent': RecurrentDecoder
+}
+
+recon_losses = {
+    'bow': recon_loss_bow,
+    'oh_bow': recon_loss_oh_bow,
+    'full': recon_loss
+}
+
+
 class BimodalVariationalAutoEncoder(tf.keras.Model):
-    def __init__(self, language_dim, l_vocab_size, l_emb_dim, source_code_dim, c_vocab_size, c_emb_dim,
-                 latent_dim, input_dropout=0.05, architecture='recurrent', name='bvae'):
-        super(BimodalVariationalAutoEncoder, self).__init__(name=name)
-        if architecture == 'recurrent':
-            l_enc_model = RecurrentVariationalEncoder
-            c_enc_model = RecurrentVariationalEncoder
-            l_dec_model = RecurrentDecoder
-            c_dec_model = RecurrentDecoder
-            self.recon_loss = recon_loss
-        elif architecture == 'mlp':
-            l_enc_model = VariationalEncoder
-            c_enc_model = VariationalEncoder
-            l_dec_model = Decoder
-            c_dec_model = Decoder
-            self.recon_loss = recon_loss_bow
-        elif architecture == 'mlp_no_embeddings':
-            l_enc_model = VariationalEncoderNoEmbedding
-            c_enc_model = VariationalEncoderNoEmbedding
-            l_dec_model = Decoder
-            c_dec_model = Decoder
-            self.recon_loss = recon_loss_bow
-        else:
-            raise Exception("Invalid architecture specification %s" % architecture)
-        self.language_encoder = l_enc_model(language_dim, latent_dim, l_vocab_size, l_emb_dim,
-                                            input_dropout=input_dropout, name='language_encoder')
-        self.source_code_encoder = c_enc_model(source_code_dim, latent_dim, c_vocab_size, c_emb_dim,
-                                               input_dropout=input_dropout, name='source_code_encoder')
-        self.language_decoder = l_dec_model(latent_dim, language_dim, l_vocab_size,
-                                            name='language_decoder')
-        self.source_code_decoder = c_dec_model(latent_dim, source_code_dim, c_vocab_size,
-                                               name='source_code_decoder')
-        self.l_dim = language_dim
-        self.c_dim = source_code_dim
+    def __init__(self, model_path, l_vocab_size, c_vocab_size, tf_name='bvae'):
+        super(BimodalVariationalAutoEncoder, self).__init__(name=tf_name)
+
+        if not os.path.isfile(model_path + "model_description.json"):
+            raise FileNotFoundError("Model description not found")
+
+        with open(model_path + "model_description.json", 'r') as json_file:
+            model_description = json.load(json_file)
+
+        self.l_dim = model_description['l_dim']
+        self.c_dim = model_description['c_dim']
         self.l_vocab_size = l_vocab_size
         self.c_vocab_size = c_vocab_size
+        self.latent_dim = model_description['latent_dim']
+
+        self.language_encoder = encoders[model_description['l_enc_type']](
+            self.l_dim,
+            self.latent_dim,
+            self.l_vocab_size,
+            model_description['l_emb_dim'],
+            input_dropout=model_description['input_dropout'],
+            name='language_encoder'
+        )
+
+        self.source_code_encoder = encoders[model_description['c_enc_type']](
+            self.c_dim,
+            self.latent_dim,
+            self.c_vocab_size,
+            model_description['c_emb_dim'],
+            input_dropout=model_description['input_dropout'],
+            name='source_code_encoder'
+        )
+
+        self.language_decoder = decoders[model_description['l_dec_type']](
+            self.latent_dim,
+            self.l_dim,
+            self.l_vocab_size,
+            name='language_decoder'
+        )
+
+        self.source_code_decoder = decoders[model_description['c_dec_type']](
+            self.latent_dim,
+            self.c_dim,
+            self.c_vocab_size,
+            name='source_code_decoder'
+        )
+
+        self.recon_loss = recon_losses[model_description['recon_loss_type']]
 
     def compute_and_add_loss(self, language_batch, source_code_batch, enc_source_code_dists, enc_language_dists,
                              dec_language, dec_source_code,
@@ -232,31 +263,12 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
 
 
 def load_or_create_model(model_path, l_vocab_size, c_vocab_size, expect_existing_checkpoint=False):
-    if not os.path.isfile(model_path + "model_description.json"):
-        raise FileNotFoundError("Model description not found")
-
-    with open(model_path + "model_description.json", 'r') as json_file:
-        model_description = json.load(json_file)
-
-    l_dim = model_description['l_dim']
-    l_emb_dim = model_description['l_emb_dim']
-    c_dim = model_description['c_dim']
-    c_emb_dim = model_description['c_emb_dim']
-    latent_dim = model_description['latent_dim']
-    dropout_rate = model_description['dropout_rate']
-    architecture = model_description['architecture']
-
-    model = BimodalVariationalAutoEncoder(l_dim, l_vocab_size, l_emb_dim, c_dim, c_vocab_size,
-                                          c_emb_dim, latent_dim, input_dropout=dropout_rate,
-                                          architecture=architecture)
-
+    model = BimodalVariationalAutoEncoder(model_path, l_vocab_size, c_vocab_size)
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=False)
-
     if os.path.isfile(model_path + "checkpoint"):
         model.load_weights(model_path + "model_checkpoint.ckpt")
     else:
         assert not expect_existing_checkpoint, "Failed to load model checkpoint. Did you train the model yet?"
-
     return model
 
 
@@ -311,7 +323,6 @@ class RetBVAE(object):
 
 
 def main(model_path='../models/r3/'):
-
     print("Loading seqifiers, which are responsible for turning texts into sequences of integers...")
     with open(model_path + "seqifiers_description.json") as seq_desc_json:
         seqifiers_description = json.load(seq_desc_json)
