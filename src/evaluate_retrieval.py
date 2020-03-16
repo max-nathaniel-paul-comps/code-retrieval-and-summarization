@@ -1,7 +1,7 @@
 import random
 import numpy as np
 from tqdm import tqdm
-from bvae import *
+from ret_bvae import *
 import sys
 sys.path.append("../baselines/RET-IR")
 import retir
@@ -13,7 +13,7 @@ def reciprocal_rank(sorted_indices, golden_idx):
             return 1.0 / (i + 1.0)
 
 
-def evaluate_retrieval(summaries, codes, bvae_model_path,
+def evaluate_retrieval(summaries, codes, bvae_model_path='../models/r6/',
                        baseline='random', random_sample_size=50, num_samples=1000):
     if baseline == 'ret_ir':
         def baseline_model(summary, candidate_summaries, candidate_codes):
@@ -36,8 +36,9 @@ def evaluate_retrieval(summaries, codes, bvae_model_path,
     code_seqifier = Seqifier(seqifiers_description['source_code_seq_type'],
                              bvae_model_path + seqifiers_description['source_code_seq_path'])
 
-    bvae_model = load_or_create_model(bvae_model_path, language_seqifier.vocab_size, code_seqifier.vocab_size,
-                                      expect_existing_checkpoint=True)
+    bvae_model = BimodalVariationalAutoEncoder(bvae_model_path, language_seqifier.vocab_size, code_seqifier.vocab_size)
+    bvae_model.compile()
+    bvae_model.load_weights(bvae_model_path + "model_checkpoint.ckpt")
 
     random.seed()
     baseline_reciprocal_ranks = []
@@ -65,7 +66,7 @@ def evaluate_retrieval(summaries, codes, bvae_model_path,
 
 def main():
     summaries, codes = load_iyer_file("../data/iyer_csharp/dev.txt")
-    evaluate_retrieval(summaries, codes, "../models/r3/")
+    evaluate_retrieval(summaries, codes)
 
 
 if __name__ == "__main__":

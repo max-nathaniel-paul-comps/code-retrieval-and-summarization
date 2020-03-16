@@ -1,4 +1,6 @@
 from bvae import *
+from text_data_utils import *
+from seqifier import *
 
 
 def train_bvae(model, model_path, train_summaries, train_codes, val_summaries, val_codes):
@@ -15,7 +17,7 @@ def train_bvae(model, model_path, train_summaries, train_codes, val_summaries, v
               callbacks=[tboard_callback, checkpoints, reduce_on_plateau, early_stopping])
 
 
-def main(model_path="../models/r3/"):
+def main(model_path="../models/r6/"):
     print("Loading dataset...")
     train_summaries, train_codes = load_iyer_file("../data/iyer_csharp/train.txt")
     val_summaries, val_codes = load_iyer_file("../data/iyer_csharp/valid.txt")
@@ -33,7 +35,10 @@ def main(model_path="../models/r3/"):
                              target_vocab_size=seqifiers_description['source_code_target_vocab_size'])
 
     print("Creating model from JSON description...")
-    model = load_or_create_model(model_path, language_seqifier.vocab_size, code_seqifier.vocab_size)
+    model = BimodalVariationalAutoEncoder(model_path, language_seqifier.vocab_size, code_seqifier.vocab_size)
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001))
+    if os.path.isfile(model_path + "model_checkpoint.ckpt"):
+        model.load_weights(model_path + "model_checkpoint.ckpt")
 
     if os.path.isfile(model_path + "checkpoint"):
         print("The model has already been trained, and training will continue.")

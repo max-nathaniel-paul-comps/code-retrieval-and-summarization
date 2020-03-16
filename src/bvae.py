@@ -2,8 +2,6 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import os
 import json
-from seqifier import Seqifier
-from text_data_utils import *
 
 
 def recon_loss_oh_bow(true, pred_prob, vocab_size):
@@ -200,6 +198,7 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
         self.l_vocab_size = l_vocab_size
         self.c_vocab_size = c_vocab_size
         self.latent_dim = model_description['latent_dim']
+        self.kld_loss_type = model_description['kld_loss_type']
 
         self.language_encoder = encoders[model_description['l_enc_type']](
             self.l_dim,
@@ -238,11 +237,15 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
     def compute_and_add_loss(self, language_batch, source_code_batch, enc_source_code_dists, enc_language_dists,
                              dec_language, dec_source_code,
                              al=0.35, bl=0.15, ac=0.35, bc=0.15):
-        mean_dists = dists_means(enc_language_dists, enc_source_code_dists)
-        language_kld = mpreg_loss(enc_language_dists, mean_dists)
-        source_code_kld = mpreg_loss(enc_source_code_dists, mean_dists)
-        """language_kld = preg_loss(enc_language_dists, enc_source_code_dists)
-        source_code_kld = preg_loss(enc_source_code_dists, enc_language_dists)"""
+        if self.kld_loss_type == 'preg':
+            language_kld = preg_loss(enc_language_dists, enc_source_code_dists)
+            source_code_kld = preg_loss(enc_source_code_dists, enc_language_dists)
+        elif self.kld_loss_type == 'mpreg':
+            mean_dists = dists_means(enc_language_dists, enc_source_code_dists)
+            language_kld = mpreg_loss(enc_language_dists, mean_dists)
+            source_code_kld = mpreg_loss(enc_source_code_dists, mean_dists)
+        else:
+            raise Exception("Invalid KL-divergence loss: %s" % self.kld_loss_type)
         language_recon = self.recon_loss(language_batch, dec_language, self.l_vocab_size)
         source_code_recon = self.recon_loss(source_code_batch, dec_source_code, self.c_vocab_size)
         final_loss = al * language_recon + bl * language_kld + ac * source_code_recon + bc * source_code_kld
@@ -260,90 +263,3 @@ class BimodalVariationalAutoEncoder(tf.keras.Model):
         self.compute_and_add_loss(language_batch, source_code_batch, enc_source_code_dists, enc_language_dists,
                                   dec_language, dec_source_code)
         return dec_language, dec_source_code
-
-
-def load_or_create_model(model_path, l_vocab_size, c_vocab_size, expect_existing_checkpoint=False):
-    model = BimodalVariationalAutoEncoder(model_path, l_vocab_size, c_vocab_size)
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), run_eagerly=False)
-    if os.path.isfile(model_path + "checkpoint"):
-        model.load_weights(model_path + "model_checkpoint.ckpt")
-    else:
-        assert not expect_existing_checkpoint, "Failed to load model checkpoint. Did you train the model yet?"
-    return model
-
-
-def process_dataset(summaries, codes, language_seqifier, code_seqifier, l_dim, c_dim,
-                    oversize_sequence_behavior='leave_out'):
-    assert len(summaries) == len(codes)
-    summaries_seq = language_seqifier.seqify_texts(summaries)
-    codes_seq = code_seqifier.seqify_texts(codes)
-    summaries_trim, codes_trim = trim_to_len(summaries_seq, codes_seq, l_dim, c_dim,
-                                             oversize_sequence_behavior=oversize_sequence_behavior)
-    return summaries_trim, codes_trim
-
-
-class RetBVAE(object):
-    def __init__(self, model, code_snippets, language_seqifier, code_seqifier, leave_out_oversize=False):
-        self.model = model
-        self.raw_codes = code_snippets
-        codes_seq = code_seqifier.seqify_texts(code_snippets)
-        if leave_out_oversize:
-            codes_seq = [seq for seq in codes_seq if len(seq) <= model.c_dim]
-        codes_padded = pad_sequences(codes_seq, maxlen=model.c_dim, padding='post', value=0)
-        self.codes = model.source_code_encoder(codes_padded).mean()
-        self.code_snippets = code_snippets
-        self.language_seqifier = language_seqifier
-        self.code_seqifier = code_seqifier
-
-    def get_similarities(self, query):
-        query_prep = preprocess_language(query)
-        query_seq = self.language_seqifier.seqify_texts([query_prep])
-        query_padded = pad_sequences(query_seq, maxlen=self.model.l_dim, padding='post', value=0)
-        query_encoded = self.model.language_encoder(query_padded).mean()
-        similarities = tf.losses.cosine_similarity(query_encoded, self.codes, axis=-1) + 1
-        return similarities
-
-    def rank_options(self, query):
-        similarities = self.get_similarities(query)
-        ranked_indices = tf.argsort(similarities, direction='ASCENDING').numpy()
-        return ranked_indices
-
-    def interactive_demo(self):
-        while True:
-            print()
-            input_summary = input("Input Summary: ")
-            if input_summary == "exit":
-                break
-            ranked_options = self.rank_options(input_summary)
-            print("Retrieved Code: %s" % self.raw_codes[ranked_options[0]])
-
-
-def main(model_path='../models/a3/'):
-    print("Loading seqifiers, which are responsible for turning texts into sequences of integers...")
-    with open(model_path + "seqifiers_description.json") as seq_desc_json:
-        seqifiers_description = json.load(seq_desc_json)
-    language_seqifier = Seqifier(seqifiers_description['language_seq_type'],
-                                 model_path + seqifiers_description['language_seq_path'])
-    code_seqifier = Seqifier(seqifiers_description['source_code_seq_type'],
-                             model_path + seqifiers_description['source_code_seq_path'])
-
-    print("Loading model...")
-    model = load_or_create_model(model_path, language_seqifier.vocab_size, code_seqifier.vocab_size,
-                                 expect_existing_checkpoint=True)
-
-    print("Loading test dataset for evaluation...")
-    """test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt")
-    test_summaries, test_codes = process_dataset(test_summaries, test_codes, language_seqifier, code_seqifier,
-                                                 model.l_dim, model.c_dim)
-    test_loss = model.evaluate((test_summaries, test_codes), None, verbose=False)
-    print("Test loss: " + str(test_loss))"""
-
-    print("Preparing interactive retrieval demo...")
-    dev_summaries, dev_codes = load_iyer_file("../data/iyer_csharp/dev.txt")
-    ret_bvae = RetBVAE(model, dev_codes, language_seqifier, code_seqifier, leave_out_oversize=True)
-
-    ret_bvae.interactive_demo()
-
-
-if __name__ == "__main__":
-    main()

@@ -152,6 +152,16 @@ def eof_texts(texts: List[str]) -> List[str]:
     return texts
 
 
+def process_dataset(summaries, codes, language_seqifier, code_seqifier, l_dim, c_dim,
+                    oversize_sequence_behavior='leave_out'):
+    assert len(summaries) == len(codes)
+    summaries_seq = language_seqifier.seqify_texts(summaries)
+    codes_seq = code_seqifier.seqify_texts(codes)
+    summaries_trim, codes_trim = trim_to_len(summaries_seq, codes_seq, l_dim, c_dim,
+                                             oversize_sequence_behavior=oversize_sequence_behavior)
+    return summaries_trim, codes_trim
+
+
 def main():
     ex_dataset_file = open("../data/iyer_csharp/train.txt").readlines()
     ex_dataset = []
