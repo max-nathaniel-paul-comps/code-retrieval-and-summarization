@@ -13,7 +13,7 @@ def reciprocal_rank(sorted_indices, golden_idx):
             return 1.0 / (i + 1.0)
 
 
-def evaluate_retrieval(summaries, codes, bvae_model_path='../models/r6/',
+def evaluate_retrieval(summaries, codes, bvae_model_path='../models/r6_2/',
                        baseline='random', random_sample_size=50, num_samples=1000):
     if baseline == 'ret_ir':
         def baseline_model(summary, candidate_summaries, candidate_codes):

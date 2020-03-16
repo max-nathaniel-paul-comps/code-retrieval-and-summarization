@@ -28,7 +28,7 @@ class Seqifier(object):
 
             self.vocab_size = keras_tokenizer.num_words
             self.seqify_texts = lambda texts: keras_tokenizer.texts_to_sequences(splitter(texts))
-            self.de_seqify_texts = lambda seqs: " ".join(keras_tokenizer.sequences_to_texts(seqs))
+            self.de_seqify_texts = lambda seqs: keras_tokenizer.sequences_to_texts(seqs)
 
         elif seq_type == 'subwords':
             if os.path.isfile(path + ".subwords"):

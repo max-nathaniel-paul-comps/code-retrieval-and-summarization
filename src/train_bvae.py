@@ -17,7 +17,7 @@ def train_bvae(model, model_path, train_summaries, train_codes, val_summaries, v
               callbacks=[tboard_callback, checkpoints, reduce_on_plateau, early_stopping])
 
 
-def main(model_path="../models/r6/"):
+def main(model_path="../models/r6_2/"):
     print("Loading dataset...")
     train_summaries, train_codes = load_iyer_file("../data/iyer_csharp/train.txt")
     val_summaries, val_codes = load_iyer_file("../data/iyer_csharp/valid.txt")
