@@ -290,7 +290,7 @@ class RetBVAE(object):
         if leave_out_oversize:
             codes_seq = [seq for seq in codes_seq if len(seq) <= model.c_dim]
         codes_padded = pad_sequences(codes_seq, maxlen=model.c_dim, padding='post', value=0)
-        self.codes = model.source_code_encoder(codes_padded)
+        self.codes = model.source_code_encoder(codes_padded).mean()
         self.code_snippets = code_snippets
         self.language_seqifier = language_seqifier
         self.code_seqifier = code_seqifier
@@ -299,12 +299,8 @@ class RetBVAE(object):
         query_prep = preprocess_language(query)
         query_seq = self.language_seqifier.seqify_texts([query_prep])
         query_padded = pad_sequences(query_seq, maxlen=self.model.l_dim, padding='post', value=0)
-        query_encoded = self.model.language_encoder(query_padded)
-        similarities_all = tfp.distributions.kl_divergence(
-            query_encoded,
-            self.codes
-        )
-        similarities = tf.reduce_sum(similarities_all, axis=-1)
+        query_encoded = self.model.language_encoder(query_padded).mean()
+        similarities = tf.losses.cosine_similarity(query_encoded, self.codes, axis=-1) + 1
         return similarities
 
     def rank_options(self, query):
@@ -322,7 +318,7 @@ class RetBVAE(object):
             print("Retrieved Code: %s" % self.raw_codes[ranked_options[0]])
 
 
-def main(model_path='../models/r3/'):
+def main(model_path='../models/a3/'):
     print("Loading seqifiers, which are responsible for turning texts into sequences of integers...")
     with open(model_path + "seqifiers_description.json") as seq_desc_json:
         seqifiers_description = json.load(seq_desc_json)
@@ -336,11 +332,11 @@ def main(model_path='../models/r3/'):
                                  expect_existing_checkpoint=True)
 
     print("Loading test dataset for evaluation...")
-    test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt")
+    """test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt")
     test_summaries, test_codes = process_dataset(test_summaries, test_codes, language_seqifier, code_seqifier,
                                                  model.l_dim, model.c_dim)
     test_loss = model.evaluate((test_summaries, test_codes), None, verbose=False)
-    print("Test loss: " + str(test_loss))
+    print("Test loss: " + str(test_loss))"""
 
     print("Preparing interactive retrieval demo...")
     dev_summaries, dev_codes = load_iyer_file("../data/iyer_csharp/dev.txt")
