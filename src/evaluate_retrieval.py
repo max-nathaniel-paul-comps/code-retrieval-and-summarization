@@ -13,7 +13,7 @@ def reciprocal_rank(sorted_indices, golden_idx):
             return 1.0 / (i + 1.0)
 
 
-def evaluate_retrieval(summaries, codes, bvae_model_path='../models/r6_2/',
+def evaluate_retrieval(summaries, codes, bvae_model_path,
                        baseline='random', random_sample_size=50, num_samples=1000):
     if baseline == 'ret_ir':
         def baseline_model(summary, candidate_summaries, candidate_codes):
@@ -36,7 +36,7 @@ def evaluate_retrieval(summaries, codes, bvae_model_path='../models/r6_2/',
     code_seqifier = Seqifier(seqifiers_description['source_code_seq_type'],
                              bvae_model_path + seqifiers_description['source_code_seq_path'])
 
-    bvae_model = BimodalVariationalAutoEncoder(bvae_model_path, language_seqifier.vocab_size, code_seqifier.vocab_size)
+    bvae_model = BimodalVariationalAutoEncoder(bvae_model_path, language_seqifier, code_seqifier)
     bvae_model.compile()
     bvae_model.load_weights(bvae_model_path + "model_checkpoint.ckpt")
 
@@ -65,8 +65,10 @@ def evaluate_retrieval(summaries, codes, bvae_model_path='../models/r6_2/',
 
 
 def main():
+    assert len(sys.argv) == 2, "Usage: python evaluate_retrieval.py path/to/bvae/model/dir/"
+    model_path = sys.argv[1]
     summaries, codes = load_iyer_file("../data/iyer_csharp/dev.txt")
-    evaluate_retrieval(summaries, codes)
+    evaluate_retrieval(summaries, codes, model_path)
 
 
 if __name__ == "__main__":

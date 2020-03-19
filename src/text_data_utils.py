@@ -41,7 +41,7 @@ def preprocess_source_code(source_code: str) -> str:
 
 def tokenize_text(text: str) -> List[str]:
     words_re = re.compile(r'(\w+|[^\w\s])')
-    return words_re.findall(text) + ['<eof>']
+    return ['<s>'] + words_re.findall(text) + ['</s>']
 
 
 def trim_to_len(summaries, codes, max_summary_len, max_source_code_len,
@@ -109,13 +109,13 @@ def load_iyer_file(filename: str) -> Tuple[List[str], List[str]]:
     return summaries, codes
 
 
-def parse_codes(codes: List[str], max_len: int = 1000) -> List[List[int]]:
+def parse_codes(codes: List[str], max_len: int = 1000) -> List[List[str]]:
     parsed_codes = []
     for code in codes:
         lexer = CSharp4Lexer(InputStream(code))
         token_stream = CommonTokenStream(lexer)
         token_stream.fetch(3 * max_len)  # We fetch more than the max len so we can detect oversize codes later...
-        parsed_code = []
+        parsed_code = ['<s>']
         for token in token_stream.tokens:
             if token.type == 109:
                 parsed_code += ["CODE_INTEGER"]
@@ -126,7 +126,8 @@ def parse_codes(codes: List[str], max_len: int = 1000) -> List[List[int]]:
             elif token.type == 113:
                 parsed_code += ["CODE_STRING"]
             elif token.type == -1:
-                parsed_code += ["<eof>"]
+                parsed_code += ["</s>"]
+                break
             elif token.type in [4, 5, 6, 7, 8, 9]:  # whitespace and comments and newline
                 pass
             else:
@@ -143,7 +144,7 @@ def tokenize_texts(texts: List[str]) -> List[List[str]]:
 
 
 def eof_text(text: str) -> str:
-    text = text + "<eof>"
+    text = "<s>" + text + "</s>"
     return text
 
 

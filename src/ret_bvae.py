@@ -1,3 +1,4 @@
+import sys
 from bvae import *
 from text_data_utils import *
 from seqifier import Seqifier
@@ -11,7 +12,8 @@ class RetBVAE(object):
         if leave_out_oversize:
             codes_seq = [seq for seq in codes_seq if len(seq) <= model.c_dim]
         codes_padded = pad_sequences(codes_seq, maxlen=model.c_dim, padding='post', value=0)
-        self.codes = model.source_code_encoder(codes_padded).mean()
+        codes_embedded = model.source_code_embedding(codes_padded)
+        self.codes = model.source_code_encoder(codes_embedded).mean()
         self.code_snippets = code_snippets
         self.language_seqifier = language_seqifier
         self.code_seqifier = code_seqifier
@@ -20,7 +22,8 @@ class RetBVAE(object):
         query_prep = preprocess_language(query)
         query_seq = self.language_seqifier.seqify_texts([query_prep])
         query_padded = pad_sequences(query_seq, maxlen=self.model.l_dim, padding='post', value=0)
-        query_encoded = self.model.language_encoder(query_padded).mean()
+        query_embedded = self.model.language_embedding(query_padded)
+        query_encoded = self.model.language_encoder(query_embedded).mean()
         similarities = tf.losses.cosine_similarity(query_encoded, self.codes, axis=-1) + 1
         return similarities
 
@@ -39,7 +42,10 @@ class RetBVAE(object):
             print("Retrieved Code: %s" % self.raw_codes[ranked_options[0]])
 
 
-def main(model_path='../models/r6/'):
+def main():
+    assert len(sys.argv) == 2, "Usage: python ret_bvae.py path/to/model/dir/"
+    model_path = sys.argv[1]
+
     print("Loading seqifiers, which are responsible for turning texts into sequences of integers...")
     with open(model_path + "seqifiers_description.json") as seq_desc_json:
         seqifiers_description = json.load(seq_desc_json)
@@ -49,7 +55,7 @@ def main(model_path='../models/r6/'):
                              model_path + seqifiers_description['source_code_seq_path'])
 
     print("Loading model...")
-    model = BimodalVariationalAutoEncoder(model_path, language_seqifier.vocab_size, code_seqifier.vocab_size)
+    model = BimodalVariationalAutoEncoder(model_path, language_seqifier, code_seqifier)
     model.compile()
     model.load_weights(model_path + "model_checkpoint.ckpt")
 
