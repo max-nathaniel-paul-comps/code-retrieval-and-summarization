@@ -59,7 +59,7 @@ def create_latent_dists(logits, latent_dim):
 class RecurrentEncoder(tf.keras.Model):
     def __init__(self, input_dim, latent_dim, vocab_size, name='gru_variational_encoder'):
         super(RecurrentEncoder, self).__init__(name=name)
-        self.gru = tf.keras.layers.GRU(latent_dim, return_sequences=False, return_state=True, go_backwards=True)
+        self.gru = tf.keras.layers.GRU(latent_dim * 2, return_sequences=False, return_state=True, go_backwards=True)
         self.dense = tf.keras.layers.Dense(latent_dim * 2)
         self.latent_dim = latent_dim
 
@@ -115,13 +115,15 @@ class RecurrentDecoder(tf.keras.Model):
         self.embedding = embedding
         self.start_token = start_token
         self.end_token = end_token
-        self.gru = tf.keras.layers.GRU(latent_dim, return_sequences=True)
-        self.dense = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(self.vocab_size))
+        self.dense = tf.keras.layers.Dense(latent_dim * 2)
+        self.gru = tf.keras.layers.GRU(latent_dim * 2, return_sequences=True)
+        self.dense_2 = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(self.vocab_size))
 
     def teacher_forcing_decode(self, latent_samples, true_outputs):
         teacher_slice = true_outputs[:, :true_outputs.shape[1] - 1, :]
-        gru_out = self.gru(teacher_slice, initial_state=latent_samples)
-        predicts = self.dense(gru_out)
+        dense_out = self.dense(latent_samples)
+        gru_out = self.gru(teacher_slice, initial_state=dense_out)
+        predicts = self.dense_2(gru_out)
         return predicts
 
     def beam_search_decode(self, latent_samples):  # TODO actually implement beam search
@@ -129,11 +131,12 @@ class RecurrentDecoder(tf.keras.Model):
         for i in range(latent_samples.shape[0]):
             predicted_token = self.start_token
             predicted_text = [predicted_token]
-            state = [tf.expand_dims(tf.expand_dims(latent_samples[i], 0), 0)]
+            dense_out = self.dense(tf.expand_dims(latent_samples[i], 0))
+            state = [tf.expand_dims(dense_out, 0)]
             for j in range(self.reconstructed_dim):
                 predicted_embedded = self.embedding(tf.expand_dims(tf.expand_dims(predicted_token, 0), 0))
                 output, state = self.gru.cell(predicted_embedded, state)
-                predicted_token = tf.argmax(self.dense(output), axis=-1, output_type=tf.int32).numpy()[0][0]
+                predicted_token = tf.argmax(self.dense_2(output), axis=-1, output_type=tf.int32).numpy()[0][0]
                 predicted_text += [predicted_token]
                 if predicted_token == self.end_token:
                     break
