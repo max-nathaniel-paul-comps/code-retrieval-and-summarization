@@ -3,6 +3,7 @@ import numpy as np
 import text_data_utils as tdu
 from tensorflow.keras.preprocessing.text import Tokenizer, tokenizer_from_json
 from tensorflow_datasets.core.features.text import SubwordTextEncoder
+import tensorflow as tf
 
 
 class Seqifier(object):
@@ -30,7 +31,10 @@ class Seqifier(object):
                     json_file.write(out_json)
 
             self.vocab_size = keras_tokenizer.num_words
-            self.seqify_texts = lambda texts: np.array(keras_tokenizer.texts_to_sequences(splitter(texts)))
+            self.seqify_texts = lambda texts: tf.ragged.constant(
+                keras_tokenizer.texts_to_sequences(splitter(texts)),
+                dtype=tf.int32
+            )
             self.de_seqify_texts = lambda seqs: keras_tokenizer.sequences_to_texts(seqs)
             self.start_token = keras_tokenizer.texts_to_sequences(["<s>"])[0][0]
             self.end_token = keras_tokenizer.texts_to_sequences(["</s>"])[0][0]
@@ -45,8 +49,13 @@ class Seqifier(object):
                 subword_encoder.save_to_file(path)
 
             self.vocab_size = subword_encoder.vocab_size
-            self.seqify_texts = lambda texts: np.array([subword_encoder.encode(tdu.eof_text(text)) for text in texts])
-            self.de_seqify_texts = lambda seqs: [subword_encoder.decode(seq) for seq in seqs]
+            self.seqify_texts = lambda texts: tf.ragged.constant(
+                [subword_encoder.encode(tdu.eof_text(text)) for text in texts],
+                dtype=tf.int32
+            )
+            self.de_seqify_texts = lambda seqs: [
+                subword_encoder.decode(seq) for seq in seqs
+            ]
             self.start_token = subword_encoder.encode("<s>")[0]
             self.end_token = subword_encoder.encode("</s>")[0]
 

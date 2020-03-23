@@ -17,8 +17,6 @@ def main():
 
     print("Loading model...")
     model = BimodalVariationalAutoEncoder(model_path, language_seqifier, code_seqifier)
-    model.compile()
-    model.load_weights(model_path + "model_checkpoint.ckpt")
 
     while True:
         print()
@@ -26,8 +24,7 @@ def main():
         if code == "exit":
             break
         code_seq = code_seqifier.seqify_texts([code])
-        code_emb = model.source_code_embedding(code_seq)
-        latent = model.source_code_encoder(code_emb)
+        latent = model.source_code_encoder(code_seq)
         summary_seq = model.language_decoder(latent.mean())
         summary = language_seqifier.de_seqify_texts(summary_seq)[0]
         print("Predicted Summary: %s" % summary)

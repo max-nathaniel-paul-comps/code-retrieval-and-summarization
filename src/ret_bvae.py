@@ -5,15 +5,11 @@ from seqifier import Seqifier
 
 
 class RetBVAE(object):
-    def __init__(self, model, code_snippets, language_seqifier, code_seqifier, leave_out_oversize=False):
+    def __init__(self, model, code_snippets, language_seqifier, code_seqifier):
         self.model = model
         self.raw_codes = code_snippets
         codes_seq = code_seqifier.seqify_texts(code_snippets)
-        if leave_out_oversize:
-            codes_seq = [seq for seq in codes_seq if len(seq) <= model.c_dim]
-        codes_padded = pad_sequences(codes_seq, maxlen=model.c_dim, padding='post', value=0)
-        codes_embedded = model.source_code_embedding(codes_padded)
-        self.codes = model.source_code_encoder(codes_embedded).mean()
+        self.codes = model.source_code_encoder(codes_seq).mean()
         self.code_snippets = code_snippets
         self.language_seqifier = language_seqifier
         self.code_seqifier = code_seqifier
@@ -21,9 +17,7 @@ class RetBVAE(object):
     def get_similarities(self, query):
         query_prep = preprocess_language(query)
         query_seq = self.language_seqifier.seqify_texts([query_prep])
-        query_padded = pad_sequences(query_seq, maxlen=self.model.l_dim, padding='post', value=0)
-        query_embedded = self.model.language_embedding(query_padded)
-        query_encoded = self.model.language_encoder(query_embedded).mean()
+        query_encoded = self.model.language_encoder(query_seq).mean()
         similarities = tf.losses.cosine_similarity(query_encoded, self.codes, axis=-1) + 1
         return similarities
 
@@ -56,19 +50,18 @@ def main():
 
     print("Loading model...")
     model = BimodalVariationalAutoEncoder(model_path, language_seqifier, code_seqifier)
-    model.compile()
-    model.load_weights(model_path + "model_checkpoint.ckpt")
 
     print("Loading test dataset for evaluation...")
     test_summaries, test_codes = load_iyer_file("../data/iyer_csharp/test.txt")
-    test_summaries, test_codes = process_dataset(test_summaries, test_codes, language_seqifier, code_seqifier,
-                                                 model.l_dim, model.c_dim)
-    test_loss = model.evaluate((test_summaries, test_codes), None, verbose=False)
-    print("Test loss: " + str(test_loss))
+    test_summaries = language_seqifier.seqify_texts(test_summaries)
+    test_codes = code_seqifier.seqify_texts(test_codes)
+
+    test_loss = model.evaluate(test_summaries, test_codes)
+    print("Test loss: %s" % test_loss.numpy())
 
     print("Preparing interactive retrieval demo...")
     dev_summaries, dev_codes = load_iyer_file("../data/iyer_csharp/dev.txt")
-    ret_bvae = RetBVAE(model, dev_codes, language_seqifier, code_seqifier, leave_out_oversize=True)
+    ret_bvae = RetBVAE(model, dev_codes, language_seqifier, code_seqifier)
 
     ret_bvae.interactive_demo()
 

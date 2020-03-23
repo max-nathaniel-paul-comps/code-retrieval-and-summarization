@@ -1,6 +1,5 @@
 import random
 import numpy as np
-from tqdm import tqdm
 from ret_bvae import *
 import sys
 sys.path.append("../baselines/RET-IR")
@@ -37,13 +36,11 @@ def evaluate_retrieval(summaries, codes, bvae_model_path,
                              bvae_model_path + seqifiers_description['source_code_seq_path'])
 
     bvae_model = BimodalVariationalAutoEncoder(bvae_model_path, language_seqifier, code_seqifier)
-    bvae_model.compile()
-    bvae_model.load_weights(bvae_model_path + "model_checkpoint.ckpt")
 
     random.seed()
     baseline_reciprocal_ranks = []
     bvae_reciprocal_ranks = []
-    for _ in tqdm(range(num_samples)):
+    for _ in tqdm.tqdm(range(num_samples)):
         rand_idx = random.randrange(0, num_inputs - random_sample_size)
         rand_summaries = summaries[rand_idx: rand_idx + random_sample_size]
         rand_codes = codes[rand_idx: rand_idx + random_sample_size]
