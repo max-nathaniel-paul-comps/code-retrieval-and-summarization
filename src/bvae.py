@@ -101,6 +101,7 @@ class MlpBowEncoder(tf.keras.models.Sequential):
         super(MlpBowEncoder, self).__init__(
             [
                 tf.keras.layers.Input(shape=(None,), ragged=True, dtype=tf.int32),
+                RaggedDropout(input_dropout_rate),
                 tf.keras.layers.Embedding(vocab_size, emb_dim),
                 tf.keras.layers.GlobalAveragePooling1D(),
                 tf.keras.layers.Activation('tanh'),
@@ -218,7 +219,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
             self.latent_dim,
             self.l_vocab_size,
             model_description['l_emb_dim'],
-            model_description['input_dropout'],
+            model_description['l_dropout'],
             name='language_encoder'
         )
 
@@ -226,7 +227,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
             self.latent_dim,
             self.c_vocab_size,
             model_description['c_emb_dim'],
-            model_description['input_dropout'],
+            model_description['c_dropout'],
             name='source_code_encoder'
         )
 
@@ -234,7 +235,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
             self.latent_dim,
             self.l_vocab_size,
             model_description['l_emb_dim'],
-            model_description['input_dropout'],
+            model_description['l_dropout'],
             language_seqifier.start_token,
             language_seqifier.end_token,
             name='language_decoder'
@@ -244,7 +245,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
             self.latent_dim,
             self.c_vocab_size,
             model_description['c_emb_dim'],
-            model_description['input_dropout'],
+            model_description['c_dropout'],
             code_seqifier.start_token,
             code_seqifier.end_token,
             name='source_code_decoder'
