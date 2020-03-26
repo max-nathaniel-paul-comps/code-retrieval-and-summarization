@@ -161,21 +161,47 @@ class RecurrentDecoder(tf.keras.Model):
         predicts = self.dense_2(gru_out)
         return predicts
 
-    def beam_search_decode(self, latent_samples, max_len=900):  # TODO actually implement beam search
+    def beam_search_decode(self, latent_samples, beam_width=1, max_len=900):
         predicted_texts = []
         for i in range(latent_samples.shape[0]):
-            predicted_token = self.start_token
-            predicted_text = [predicted_token]
+            beams = [([self.start_token], 0.0)] * beam_width
             dense_out = self.dense(tf.expand_dims(latent_samples[i], 0))
             state = [tf.expand_dims(dense_out, 0)]
             for j in range(max_len):
-                predicted_embedded = self.embedding(tf.expand_dims(tf.expand_dims(predicted_token, 0), 0))
-                output, state = self.gru.cell(predicted_embedded, state)
-                predicted_token = tf.argmax(self.dense_2(output), axis=-1, output_type=tf.int32).numpy()[0][0]
-                predicted_text += [predicted_token]
-                if predicted_token == self.end_token:
+                candidates = []
+                for k in range(beam_width):
+                    if beams[k][0][-1] == self.end_token:
+                        if len(candidates) < beam_width:
+                            candidates.append(beams[k])
+                        else:
+                            for m in range(len(candidates)):
+                                if candidates[m][1] > beams[k][1]:
+                                    candidates[m] = beams[k]
+                                    break
+                    else:
+                        predicted_embedded = self.embedding(tf.expand_dims(tf.expand_dims(beams[k][0][-1], 0), 0))
+                        output, state = self.gru.cell(predicted_embedded, state)
+                        final = tf.nn.softmax(self.dense_2(output)[0][0])
+                        predictions = tf.argsort(final, axis=-1, direction='DESCENDING').numpy()[0:beam_width]
+                        for prediction in predictions:
+                            formed_candidate = (beams[k][0] + [prediction],
+                                                beams[k][1] + -tf.math.log(final[prediction]))
+                            if len(candidates) < beam_width:
+                                candidates.append(formed_candidate)
+                            else:
+                                for m in range(len(candidates)):
+                                    if candidates[m][1] > formed_candidate[1]:
+                                        candidates[m] = formed_candidate
+                                        break
+                beams = candidates
+                if all(beams[k][0][-1] == self.end_token for k in range(beam_width)):
                     break
-            predicted_texts += [predicted_text]
+            adjusted_beams = [(beams[k][0], beams[k][1] / len(beams[k][0]) ** 2) for k in range(beam_width)]
+            lowest_perplexity_beam = adjusted_beams[0]
+            for k in range(1, beam_width):
+                if adjusted_beams[k][1] < lowest_perplexity_beam[1]:
+                    lowest_perplexity_beam = adjusted_beams[k]
+            predicted_texts.append(lowest_perplexity_beam[0])
         return predicted_texts
 
     def call(self, latent_samples, true_outputs=None, training=False, **kwargs):
