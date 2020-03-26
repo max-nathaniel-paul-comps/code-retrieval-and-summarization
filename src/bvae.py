@@ -65,12 +65,15 @@ class RaggedDropout(tf.keras.layers.Layer):
         self._supports_ragged_inputs = True
         self.rate = rate
 
-    def call(self, inputs, **kwargs):
-        noise = tf.random.uniform(tf.shape(inputs.values), minval=0, maxval=1, dtype=tf.float32)
-        noise_ints = tf.cast(tf.greater_equal(noise, self.rate), tf.int32)
-        output_values = inputs.values * noise_ints
-        outputs = tf.RaggedTensor.from_row_splits(output_values, inputs.row_splits)
-        return outputs
+    def call(self, inputs, training=False, **kwargs):
+        if training:
+            noise = tf.random.uniform(tf.shape(inputs.values), minval=0, maxval=1, dtype=tf.float32)
+            noise_ints = tf.cast(tf.greater_equal(noise, self.rate), tf.int32)
+            output_values = inputs.values * noise_ints
+            outputs = tf.RaggedTensor.from_row_splits(output_values, inputs.row_splits)
+            return outputs
+        else:
+            return inputs
 
 
 class RecurrentEncoder(tf.keras.models.Sequential):
@@ -149,12 +152,12 @@ class RecurrentDecoder(tf.keras.Model):
         self.gru.could_use_cudnn = False
         self.dense_2 = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(self.vocab_size))
 
-    def teacher_forcing_decode(self, latent_samples, true_outputs):
+    def teacher_forcing_decode(self, latent_samples, true_outputs, training=False):
         teacher_slice = true_outputs[:, :-1]
-        teacher_dropped = self.teacher_dropout(teacher_slice)
+        teacher_dropped = self.teacher_dropout(teacher_slice, training=training)
         teacher_embedded = self.embedding(teacher_dropped)
         dense_out = self.dense(latent_samples)
-        gru_out = self.gru(teacher_embedded, initial_state=dense_out)
+        gru_out = self.gru(teacher_embedded, initial_state=dense_out, training=training)
         predicts = self.dense_2(gru_out)
         return predicts
 
@@ -175,9 +178,9 @@ class RecurrentDecoder(tf.keras.Model):
             predicted_texts += [predicted_text]
         return predicted_texts
 
-    def call(self, latent_samples, true_outputs=None, **kwargs):
+    def call(self, latent_samples, true_outputs=None, training=False, **kwargs):
         if true_outputs is not None:
-            return self.teacher_forcing_decode(latent_samples, true_outputs)
+            return self.teacher_forcing_decode(latent_samples, true_outputs, training=training)
         else:
             return self.beam_search_decode(latent_samples)
 
@@ -219,7 +222,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
             self.latent_dim,
             self.l_vocab_size,
             model_description['l_emb_dim'],
-            model_description['l_dropout'],
+            model_description['l_enc_dropout'],
             name='language_encoder'
         )
 
@@ -227,7 +230,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
             self.latent_dim,
             self.c_vocab_size,
             model_description['c_emb_dim'],
-            model_description['c_dropout'],
+            model_description['c_enc_dropout'],
             name='source_code_encoder'
         )
 
@@ -235,7 +238,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
             self.latent_dim,
             self.l_vocab_size,
             model_description['l_emb_dim'],
-            model_description['l_dropout'],
+            model_description['l_dec_dropout'],
             language_seqifier.start_token,
             language_seqifier.end_token,
             name='language_decoder'
@@ -245,7 +248,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
             self.latent_dim,
             self.c_vocab_size,
             model_description['c_emb_dim'],
-            model_description['c_dropout'],
+            model_description['c_dec_dropout'],
             code_seqifier.start_token,
             code_seqifier.end_token,
             name='source_code_decoder'
