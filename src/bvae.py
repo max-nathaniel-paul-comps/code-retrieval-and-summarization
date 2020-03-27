@@ -3,6 +3,10 @@ import tensorflow_probability as tfp
 import tqdm
 import os
 import json
+import numpy as np
+
+
+GLOBAL_MAX_SEQUENCE_LEN = 1200
 
 
 def recon_loss_bow(true, pred_prob, vocab_size):
@@ -57,6 +61,41 @@ def create_latent_dists(logits, latent_dim):
     stddevs = tf.math.abs(logits[:, latent_dim:])
     dists = tfp.distributions.Normal(means, stddevs)
     return dists
+
+
+def get_angles(pos, i, d_model):  # Lifted from TensorFlow Transformer tutorial
+    angle_rates = 1 / np.power(10000, (2 * (i//2)) / np.float32(d_model))
+    return pos * angle_rates
+
+
+def positional_encoding(position, d_model):  # Also lifted from TensorFlow Transformer tutorial
+    angle_rads = get_angles(np.arange(position)[:, np.newaxis],
+                            np.arange(d_model)[np.newaxis, :],
+                            d_model)
+
+    # apply sin to even indices in the array; 2i
+    angle_rads[:, 0::2] = np.sin(angle_rads[:, 0::2])
+
+    # apply cos to odd indices in the array; 2i+1
+    angle_rads[:, 1::2] = np.cos(angle_rads[:, 1::2])
+
+    pos_encoding = angle_rads[np.newaxis, ...]
+
+    return tf.cast(pos_encoding, dtype=tf.float32)
+
+
+class PositionalEncoding(tf.keras.layers.Layer):
+    def __init__(self, dim, name='pos_enc'):
+        super(PositionalEncoding, self).__init__(name=name)
+        self._supports_ragged_inputs = True
+        self.encodings = positional_encoding(GLOBAL_MAX_SEQUENCE_LEN, dim)
+
+    def call(self, inputs, **kwargs):
+        inputs_non_ragged = inputs.to_tensor()
+        mask = tf.logical_not(tf.reduce_all(tf.equal(inputs_non_ragged, 0), axis=-1))
+        result = inputs_non_ragged + self.encodings[:, :tf.shape(inputs_non_ragged)[1], :]
+        result_ragged = tf.ragged.boolean_mask(result, mask)
+        return result_ragged
 
 
 class RaggedDropout(tf.keras.layers.Layer):
@@ -122,6 +161,30 @@ class MlpBowEncoder(tf.keras.models.Sequential):
         return dists
 
 
+class MlpPeEncoder(tf.keras.models.Sequential):
+    def __init__(self, latent_dim, vocab_size, emb_dim, input_dropout_rate, name='variational_encoder'):
+        super(MlpPeEncoder, self).__init__(
+            [
+                tf.keras.layers.Input(shape=(None,), ragged=True, dtype=tf.int32),
+                RaggedDropout(input_dropout_rate),
+                tf.keras.layers.Embedding(vocab_size, emb_dim),
+                PositionalEncoding(emb_dim),
+                tf.keras.layers.GlobalAveragePooling1D(),
+                tf.keras.layers.Activation('tanh'),
+                tf.keras.layers.Dense(latent_dim * 2, name='emb_to_hidden'),
+                tf.keras.layers.LeakyReLU(),
+                tf.keras.layers.Dense(latent_dim * 2, name='hidden_to_encoded')
+            ],
+            name=name
+        )
+        self.latent_dim = latent_dim
+
+    def call(self, x, training=None, **kwargs):
+        raw_dists = super(MlpPeEncoder, self).call(x, training=training)
+        dists = create_latent_dists(raw_dists, self.latent_dim)
+        return dists
+
+
 class MlpBowDecoder(tf.keras.models.Sequential):
     def __init__(self, latent_dim, vocab_size, emb_dim, teacher_dropout_rate, start_token, end_token,
                  name='decoder'):
@@ -161,13 +224,21 @@ class RecurrentDecoder(tf.keras.Model):
         predicts = self.dense_2(gru_out)
         return predicts
 
-    def beam_search_decode(self, latent_samples, beam_width=1, max_len=900):
+    def beam_search_decode(self, latent_samples, beam_width=10, max_len=GLOBAL_MAX_SEQUENCE_LEN):
         predicted_texts = []
         for i in range(latent_samples.shape[0]):
-            beams = [([self.start_token], 0.0)] * beam_width
             dense_out = self.dense(tf.expand_dims(latent_samples[i], 0))
-            state = [tf.expand_dims(dense_out, 0)]
-            for j in range(max_len):
+            predicted_embedded = self.embedding(tf.expand_dims(tf.expand_dims(self.start_token, 0), 0))
+            output, initial_state = self.gru.cell(predicted_embedded, tf.expand_dims(dense_out, 0))
+            final = tf.nn.softmax(self.dense_2(output)[0][0], axis=-1)
+            predictions = tf.argsort(final, axis=-1, direction='DESCENDING').numpy()[0:beam_width]
+            beams = []
+            for k in range(beam_width):
+                formed_candidate = ([self.start_token, predictions[k]],
+                                    -tf.math.log(final[predictions[k]]),
+                                    initial_state)
+                beams.append(formed_candidate)
+            for j in range(max_len - 1):
                 candidates = []
                 for k in range(beam_width):
                     if beams[k][0][-1] == self.end_token:
@@ -180,12 +251,13 @@ class RecurrentDecoder(tf.keras.Model):
                                     break
                     else:
                         predicted_embedded = self.embedding(tf.expand_dims(tf.expand_dims(beams[k][0][-1], 0), 0))
-                        output, state = self.gru.cell(predicted_embedded, state)
-                        final = tf.nn.softmax(self.dense_2(output)[0][0])
+                        output, new_state = self.gru.cell(predicted_embedded, beams[k][2])
+                        final = tf.nn.softmax(self.dense_2(output)[0][0], axis=-1)
                         predictions = tf.argsort(final, axis=-1, direction='DESCENDING').numpy()[0:beam_width]
                         for prediction in predictions:
                             formed_candidate = (beams[k][0] + [prediction],
-                                                beams[k][1] + -tf.math.log(final[prediction]))
+                                                beams[k][1] + -tf.math.log(final[prediction]),
+                                                new_state)
                             if len(candidates) < beam_width:
                                 candidates.append(formed_candidate)
                             else:
@@ -196,11 +268,10 @@ class RecurrentDecoder(tf.keras.Model):
                 beams = candidates
                 if all(beams[k][0][-1] == self.end_token for k in range(beam_width)):
                     break
-            adjusted_beams = [(beams[k][0], beams[k][1] / len(beams[k][0]) ** 2) for k in range(beam_width)]
-            lowest_perplexity_beam = adjusted_beams[0]
+            lowest_perplexity_beam = beams[0]
             for k in range(1, beam_width):
-                if adjusted_beams[k][1] < lowest_perplexity_beam[1]:
-                    lowest_perplexity_beam = adjusted_beams[k]
+                if beams[k][1] < lowest_perplexity_beam[1]:
+                    lowest_perplexity_beam = beams[k]
             predicted_texts.append(lowest_perplexity_beam[0])
         return predicted_texts
 
@@ -213,7 +284,8 @@ class RecurrentDecoder(tf.keras.Model):
 
 encoders = {
     'mlp_bow': MlpBowEncoder,
-    'recurrent': RecurrentEncoder
+    'recurrent': RecurrentEncoder,
+    'mlp_pe': MlpPeEncoder
 }
 
 decoders = {
@@ -332,7 +404,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
         val_loss /= tf.cast(batches_per_val, tf.float32)
         return val_loss
 
-    def train(self, train_summaries, train_codes, val_summaries, val_codes, num_epochs=25, batch_size=128, patience=6):
+    def train(self, train_summaries, train_codes, val_summaries, val_codes, num_epochs=100, batch_size=128, patience=6):
 
         assert train_summaries.shape[0] == train_codes.shape[0]
         len_train = train_summaries.shape[0]
