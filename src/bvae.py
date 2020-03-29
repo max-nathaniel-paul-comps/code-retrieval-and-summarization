@@ -3,14 +3,14 @@ import tensorflow_probability as tfp
 import tqdm
 import os
 import json
-import numpy as np
-
-
-GLOBAL_MAX_SEQUENCE_LEN = 1200
+import text_data_utils as tdu
+from seqifier import Seqifier
 
 
 def recon_loss_bow(true, pred_prob, vocab_size):
-    true_one_hot = tf.one_hot(true, vocab_size, axis=-1)
+    mask = tf.logical_not(tf.equal(true, 0))
+    true_ragged = tf.ragged.boolean_mask(true, mask)
+    true_one_hot = tf.one_hot(true_ragged, vocab_size, axis=-1)
     true_bags_of_words = tf.reduce_mean(true_one_hot, axis=-2)
     recon_all = tf.nn.softmax_cross_entropy_with_logits(tf.stop_gradient(true_bags_of_words), pred_prob, axis=-1)
     recon = tf.reduce_mean(recon_all)
@@ -19,10 +19,8 @@ def recon_loss_bow(true, pred_prob, vocab_size):
 
 def recon_loss(true, pred, _):
     true_slice = true[:, 1:]
-    true_slice_non_ragged = true_slice.to_tensor()
-    pred_non_ragged = pred.to_tensor()
-    mask = tf.logical_not(tf.equal(true_slice_non_ragged, 0))
-    recon_all = tf.nn.sparse_softmax_cross_entropy_with_logits(tf.stop_gradient(true_slice_non_ragged), pred_non_ragged)
+    mask = tf.logical_not(tf.equal(true_slice, 0))
+    recon_all = tf.nn.sparse_softmax_cross_entropy_with_logits(tf.stop_gradient(true_slice), pred)
     recon_all_masked = tf.where(mask, x=recon_all, y=0.0)
     recon = tf.reduce_sum(recon_all_masked) / tf.reduce_sum(tf.cast(mask, 'float32'))
     return recon
@@ -63,88 +61,27 @@ def create_latent_dists(logits, latent_dim):
     return dists
 
 
-def get_angles(pos, i, d_model):  # Lifted from TensorFlow Transformer tutorial
-    angle_rates = 1 / np.power(10000, (2 * (i//2)) / np.float32(d_model))
-    return pos * angle_rates
-
-
-def positional_encoding(position, d_model):  # Also lifted from TensorFlow Transformer tutorial
-    angle_rads = get_angles(np.arange(position)[:, np.newaxis],
-                            np.arange(d_model)[np.newaxis, :],
-                            d_model)
-
-    # apply sin to even indices in the array; 2i
-    angle_rads[:, 0::2] = np.sin(angle_rads[:, 0::2])
-
-    # apply cos to odd indices in the array; 2i+1
-    angle_rads[:, 1::2] = np.cos(angle_rads[:, 1::2])
-
-    pos_encoding = angle_rads[np.newaxis, ...]
-
-    return tf.cast(pos_encoding, dtype=tf.float32)
-
-
-class PositionalEncoding(tf.keras.layers.Layer):
-    def __init__(self, dim, name='pos_enc'):
-        super(PositionalEncoding, self).__init__(name=name)
-        self._supports_ragged_inputs = True
-        self.encodings = positional_encoding(GLOBAL_MAX_SEQUENCE_LEN, dim)
-
-    def call(self, inputs, **kwargs):
-        inputs_non_ragged = inputs.to_tensor()
-        mask = tf.logical_not(tf.reduce_all(tf.equal(inputs_non_ragged, 0), axis=-1))
-        result = inputs_non_ragged + self.encodings[:, :tf.shape(inputs_non_ragged)[1], :]
-        result_ragged = tf.ragged.boolean_mask(result, mask)
-        return result_ragged
-
-
-class RaggedDropout(tf.keras.layers.Layer):
-    def __init__(self, rate, name='ragged_dropout'):
-        super(RaggedDropout, self).__init__(name=name)
-        self._supports_ragged_inputs = True
+class Dropout(tf.keras.layers.Layer):
+    def __init__(self, rate, name='dropout'):
+        super(Dropout, self).__init__(name=name)
         self.rate = rate
 
     def call(self, inputs, training=False, **kwargs):
         if training:
-            noise = tf.random.uniform(tf.shape(inputs.values), minval=0, maxval=1, dtype=tf.float32)
+            noise = tf.random.uniform(tf.shape(inputs), minval=0, maxval=1, dtype=tf.float32)
             noise_ints = tf.cast(tf.greater_equal(noise, self.rate), tf.int32)
-            output_values = inputs.values * noise_ints
-            outputs = tf.RaggedTensor.from_row_splits(output_values, inputs.row_splits)
+            outputs = inputs * noise_ints
             return outputs
         else:
             return inputs
-
-
-class RecurrentEncoder(tf.keras.models.Sequential):
-    def __init__(self, latent_dim, vocab_size, emb_dim, input_dropout_rate, name='gru_variational_encoder'):
-        super(RecurrentEncoder, self).__init__(
-            [
-                tf.keras.layers.Input(shape=(None,), ragged=True, dtype=tf.int32),
-                RaggedDropout(input_dropout_rate),
-                tf.keras.layers.Embedding(vocab_size, emb_dim),
-            ],
-            name=name
-        )
-        self.gru = tf.keras.layers.GRU(latent_dim * 2, return_sequences=False, return_state=True, go_backwards=True)
-        self.gru.could_use_cudnn = False
-        self.dense = tf.keras.layers.Dense(latent_dim * 2)
-        self.latent_dim = latent_dim
-
-    def call(self, x, training=False, **kwargs):
-        embedded_and_dropped = super(RecurrentEncoder, self).call(x, training=training)
-        gru_out, gru_state = self.gru(embedded_and_dropped)
-        latent_raw = self.dense(gru_state)
-        latent = create_latent_dists(latent_raw, self.latent_dim)
-        return latent
 
 
 class MlpBowEncoder(tf.keras.models.Sequential):
     def __init__(self, latent_dim, vocab_size, emb_dim, input_dropout_rate, name='variational_encoder'):
         super(MlpBowEncoder, self).__init__(
             [
-                tf.keras.layers.Input(shape=(None,), ragged=True, dtype=tf.int32),
-                RaggedDropout(input_dropout_rate),
-                tf.keras.layers.Embedding(vocab_size, emb_dim),
+                Dropout(input_dropout_rate),
+                tf.keras.layers.Embedding(vocab_size, emb_dim, mask_zero=True),
                 tf.keras.layers.GlobalAveragePooling1D(),
                 tf.keras.layers.Activation('tanh'),
                 tf.keras.layers.Dense(latent_dim * 2, name='emb_to_hidden'),
@@ -157,30 +94,6 @@ class MlpBowEncoder(tf.keras.models.Sequential):
 
     def call(self, x, training=None, **kwargs):
         raw_dists = super(MlpBowEncoder, self).call(x, training=training)
-        dists = create_latent_dists(raw_dists, self.latent_dim)
-        return dists
-
-
-class MlpPeEncoder(tf.keras.models.Sequential):
-    def __init__(self, latent_dim, vocab_size, emb_dim, input_dropout_rate, name='variational_encoder'):
-        super(MlpPeEncoder, self).__init__(
-            [
-                tf.keras.layers.Input(shape=(None,), ragged=True, dtype=tf.int32),
-                RaggedDropout(input_dropout_rate),
-                tf.keras.layers.Embedding(vocab_size, emb_dim),
-                PositionalEncoding(emb_dim),
-                tf.keras.layers.GlobalAveragePooling1D(),
-                tf.keras.layers.Activation('tanh'),
-                tf.keras.layers.Dense(latent_dim * 2, name='emb_to_hidden'),
-                tf.keras.layers.LeakyReLU(),
-                tf.keras.layers.Dense(latent_dim * 2, name='hidden_to_encoded')
-            ],
-            name=name
-        )
-        self.latent_dim = latent_dim
-
-    def call(self, x, training=None, **kwargs):
-        raw_dists = super(MlpPeEncoder, self).call(x, training=training)
         dists = create_latent_dists(raw_dists, self.latent_dim)
         return dists
 
@@ -208,11 +121,10 @@ class RecurrentDecoder(tf.keras.Model):
         self.vocab_size = vocab_size
         self.start_token = start_token
         self.end_token = end_token
-        self.teacher_dropout = RaggedDropout(teacher_dropout_rate)
+        self.teacher_dropout = Dropout(teacher_dropout_rate)
         self.embedding = tf.keras.layers.Embedding(vocab_size, emb_dim)
         self.dense = tf.keras.layers.Dense(latent_dim * 2)
         self.gru = tf.keras.layers.GRU(latent_dim * 2, return_sequences=True)
-        self.gru.could_use_cudnn = False
         self.dense_2 = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(self.vocab_size))
 
     def teacher_forcing_decode(self, latent_samples, true_outputs, training=False):
@@ -224,7 +136,7 @@ class RecurrentDecoder(tf.keras.Model):
         predicts = self.dense_2(gru_out)
         return predicts
 
-    def beam_search_decode(self, latent_samples, beam_width=10, max_len=GLOBAL_MAX_SEQUENCE_LEN):
+    def beam_search_decode(self, latent_samples, beam_width=10, max_len=50):
         predicted_texts = []
         for i in range(latent_samples.shape[0]):
             dense_out = self.dense(tf.expand_dims(latent_samples[i], 0))
@@ -284,13 +196,15 @@ class RecurrentDecoder(tf.keras.Model):
 
 encoders = {
     'mlp_bow': MlpBowEncoder,
-    'recurrent': RecurrentEncoder,
-    'mlp_pe': MlpPeEncoder
 }
 
 decoders = {
     'mlp_bow': MlpBowDecoder,
     'recurrent': RecurrentDecoder
+}
+
+optimizers = {
+    'adam': tf.keras.optimizers.Adam(learning_rate=0.001)
 }
 
 recon_losses = {
@@ -300,8 +214,7 @@ recon_losses = {
 
 
 class BimodalVariationalAutoEncoder(tf.Module):
-    def __init__(self, model_path, language_seqifier, code_seqifier,
-                 optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), tf_name='bvae'):
+    def __init__(self, model_path, seqifiers_training_texts=(None, None), tf_name='bvae'):
 
         super(BimodalVariationalAutoEncoder, self).__init__(name=tf_name)
 
@@ -311,14 +224,24 @@ class BimodalVariationalAutoEncoder(tf.Module):
         with open(model_path + "model_description.json", 'r') as json_file:
             model_description = json.load(json_file)
 
-        self.l_vocab_size = language_seqifier.vocab_size
-        self.c_vocab_size = code_seqifier.vocab_size
+        self.language_seqifier = Seqifier(model_description['language_seq_type'],
+                                          model_path + model_description['language_seq_path'],
+                                          training_texts=seqifiers_training_texts[0],
+                                          target_vocab_size=model_description['language_target_vocab_size'])
+        self.code_seqifier = Seqifier(model_description['source_code_seq_type'],
+                                      model_path + model_description['source_code_seq_path'],
+                                      training_texts=seqifiers_training_texts[1],
+                                      target_vocab_size=model_description['source_code_target_vocab_size'])
+
+        self.l_dim = model_description['l_dim']
+        self.c_dim = model_description['c_dim']
+
         self.latent_dim = model_description['latent_dim']
         self.kld_loss_type = model_description['kld_loss_type']
 
         self.language_encoder = encoders[model_description['l_enc_type']](
             self.latent_dim,
-            self.l_vocab_size,
+            self.language_seqifier.vocab_size,
             model_description['l_emb_dim'],
             model_description['l_enc_dropout'],
             name='language_encoder'
@@ -326,7 +249,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
         self.source_code_encoder = encoders[model_description['c_enc_type']](
             self.latent_dim,
-            self.c_vocab_size,
+            self.code_seqifier.vocab_size,
             model_description['c_emb_dim'],
             model_description['c_enc_dropout'],
             name='source_code_encoder'
@@ -334,28 +257,29 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
         self.language_decoder = decoders[model_description['l_dec_type']](
             self.latent_dim,
-            self.l_vocab_size,
+            self.language_seqifier.vocab_size,
             model_description['l_emb_dim'],
             model_description['l_dec_dropout'],
-            language_seqifier.start_token,
-            language_seqifier.end_token,
+            self.language_seqifier.start_token,
+            self.language_seqifier.end_token,
             name='language_decoder'
         )
 
         self.source_code_decoder = decoders[model_description['c_dec_type']](
             self.latent_dim,
-            self.c_vocab_size,
+            self.code_seqifier.vocab_size,
             model_description['c_emb_dim'],
             model_description['c_dec_dropout'],
-            code_seqifier.start_token,
-            code_seqifier.end_token,
+            self.code_seqifier.start_token,
+            self.code_seqifier.end_token,
             name='source_code_decoder'
         )
 
         self.language_recon_loss = recon_losses[model_description['l_recon_loss']]
         self.source_code_recon_loss = recon_losses[model_description['c_recon_loss']]
 
-        self.optimizer = optimizer
+        self.optimizer = optimizers[model_description['optimizer']]
+
         checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=self.optimizer, model=self)
         self.checkpoint_manager = tf.train.CheckpointManager(checkpoint, model_path + "checkpoints/", max_to_keep=3)
         checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
@@ -378,8 +302,8 @@ class BimodalVariationalAutoEncoder(tf.Module):
             source_code_kld = mpreg_loss(enc_source_code_dists, mean_dists)
         else:
             raise Exception("Invalid KL-divergence loss: %s" % self.kld_loss_type)
-        language_recon = self.language_recon_loss(summaries, dec_language, self.l_vocab_size)
-        source_code_recon = self.source_code_recon_loss(codes, dec_source_code, self.c_vocab_size)
+        language_recon = self.language_recon_loss(summaries, dec_language, self.language_seqifier.vocab_size)
+        source_code_recon = self.source_code_recon_loss(codes, dec_source_code, self.code_seqifier.vocab_size)
         final_loss = al * language_recon + bl * language_kld + ac * source_code_recon + bc * source_code_kld
         return final_loss
 
@@ -406,7 +330,16 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
     def train(self, train_summaries, train_codes, val_summaries, val_codes, num_epochs=100, batch_size=128, patience=6):
 
-        assert train_summaries.shape[0] == train_codes.shape[0]
+        assert len(train_summaries) == len(train_codes)
+
+        print("Seqifying datasets, and removing examples that are too long...")
+        train_summaries = self.language_seqifier.seqify_texts(train_summaries)
+        train_codes = self.code_seqifier.seqify_texts(train_codes)
+        train_summaries, train_codes = tdu.trim_to_len(train_summaries, train_codes, self.l_dim, self.c_dim)
+        val_summaries = self.language_seqifier.seqify_texts(val_summaries)
+        val_codes = self.code_seqifier.seqify_texts(val_codes)
+        val_summaries, val_codes = tdu.trim_to_len(val_summaries, val_codes, self.l_dim, self.c_dim)
+
         len_train = train_summaries.shape[0]
         batches_per_epoch = int(len_train / batch_size)
         print("Training on %s samples, validating on %s samples" % (len_train, val_summaries.shape[0]))
@@ -440,3 +373,27 @@ class BimodalVariationalAutoEncoder(tf.Module):
                 if num_epochs_with_no_improvement % 2 == 0:
                     print("Decreasing learning rate by 80 percent")
                     self.optimizer.learning_rate.assign(self.optimizer.learning_rate * 0.2)
+
+    def summaries_to_latent(self, summaries):
+        seqified = self.language_seqifier.seqify_texts(summaries)
+        padded = tf.keras.preprocessing.sequence.pad_sequences(seqified, maxlen=self.l_dim, padding='post', value=0)
+        latent = self.language_encoder(padded, training=False)
+        return latent
+
+    def codes_to_latent(self, codes):
+        seqified = self.code_seqifier.seqify_texts(codes)
+        padded = tf.keras.preprocessing.sequence.pad_sequences(seqified, maxlen=self.l_dim, padding='post', value=0)
+        latent = self.source_code_encoder(padded, training=False)
+        return latent
+
+    def latent_to_summaries(self, latent):
+        mean = latent.mean()
+        seqified = self.language_decoder(mean, training=False)
+        summaries = self.language_seqifier.de_seqify_texts(seqified)
+        return summaries
+
+    def latent_to_codes(self, latent):
+        mean = latent.mean()
+        seqified = self.source_code_decoder(mean, training=False)
+        codes = self.code_seqifier.de_seqify_texts(seqified)
+        return codes

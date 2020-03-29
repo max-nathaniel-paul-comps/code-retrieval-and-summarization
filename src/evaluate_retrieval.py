@@ -28,14 +28,7 @@ def evaluate_retrieval(summaries, codes, bvae_model_path,
     assert len(summaries) == len(codes)
     num_inputs = len(summaries)
 
-    with open(bvae_model_path + "seqifiers_description.json") as seq_desc_json:
-        seqifiers_description = json.load(seq_desc_json)
-    language_seqifier = Seqifier(seqifiers_description['language_seq_type'],
-                                 bvae_model_path + seqifiers_description['language_seq_path'])
-    code_seqifier = Seqifier(seqifiers_description['source_code_seq_type'],
-                             bvae_model_path + seqifiers_description['source_code_seq_path'])
-
-    bvae_model = BimodalVariationalAutoEncoder(bvae_model_path, language_seqifier, code_seqifier)
+    bvae_model = BimodalVariationalAutoEncoder(bvae_model_path)
 
     random.seed()
     baseline_reciprocal_ranks = []
@@ -50,7 +43,7 @@ def evaluate_retrieval(summaries, codes, bvae_model_path,
         baseline_sorted_indices = baseline_model(rand_summaries[golden_idx], rand_summaries, rand_codes)
         baseline_reciprocal_ranks.append(reciprocal_rank(baseline_sorted_indices, golden_idx))
 
-        retriever = RetBVAE(bvae_model, rand_codes, language_seqifier, code_seqifier)
+        retriever = RetBVAE(bvae_model, rand_codes)
         bvae_sorted_indices = retriever.rank_options(rand_summaries[golden_idx])
         bvae_reciprocal_ranks.append(reciprocal_rank(bvae_sorted_indices, golden_idx))
 

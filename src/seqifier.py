@@ -1,9 +1,7 @@
 import os
-import numpy as np
 import text_data_utils as tdu
 from tensorflow.keras.preprocessing.text import Tokenizer, tokenizer_from_json
 from tensorflow_datasets.core.features.text import SubwordTextEncoder
-import tensorflow as tf
 
 
 class Seqifier(object):
@@ -31,11 +29,8 @@ class Seqifier(object):
                     json_file.write(out_json)
 
             self.vocab_size = keras_tokenizer.num_words
-            self.seqify_texts = lambda texts: tf.ragged.constant(
-                keras_tokenizer.texts_to_sequences(splitter(texts)),
-                dtype=tf.int32
-            )
-            self.de_seqify_texts = lambda seqs: keras_tokenizer.sequences_to_texts(seqs)
+            self.seqifier_fn = lambda texts: keras_tokenizer.texts_to_sequences(splitter(texts))
+            self.de_seqifier_fn = lambda seqs: keras_tokenizer.sequences_to_texts(seqs)
             self.start_token = keras_tokenizer.texts_to_sequences(["<s>"])[0][0]
             self.end_token = keras_tokenizer.texts_to_sequences(["</s>"])[0][0]
 
@@ -49,11 +44,10 @@ class Seqifier(object):
                 subword_encoder.save_to_file(path)
 
             self.vocab_size = subword_encoder.vocab_size
-            self.seqify_texts = lambda texts: tf.ragged.constant(
-                [subword_encoder.encode(tdu.eof_text(text)) for text in texts],
-                dtype=tf.int32
-            )
-            self.de_seqify_texts = lambda seqs: [
+            self.seqifier_fn = lambda texts: [
+                subword_encoder.encode(tdu.eof_text(text)) for text in texts
+            ]
+            self.de_seqifier_fn = lambda seqs: [
                 subword_encoder.decode(seq) for seq in seqs
             ]
             self.start_token = subword_encoder.encode("<s>")[0]
@@ -61,3 +55,16 @@ class Seqifier(object):
 
         else:
             raise Exception("Invalid seqifier type %s" % seq_type)
+
+    def seqify_texts(self, texts):
+        seqified = self.seqifier_fn(texts)
+        return seqified
+
+    def de_seqify_texts(self, seqs):
+        for i in range(len(seqs)):
+            if seqs[i][0] == self.start_token:
+                seqs[i] = seqs[i][1:]
+            if seqs[i][-1] == self.end_token:
+                seqs[i] = seqs[i][:-1]
+        texts = self.de_seqifier_fn(seqs)
+        return texts
