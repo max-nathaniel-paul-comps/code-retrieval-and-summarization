@@ -20,9 +20,14 @@ def preprocess_language(language: str) -> str:
         language = language[:-1]
     for opener in ['how do i ', 'how do you ', 'how can i ', 'how to ', 'best way to ', 'can i ',
                    'is there a way to ', 'easiest way to ', 'best implementation for ',
-                   'best implementation of ', 'what is the best way to ', 'what is the proper way to ']:
+                   'best implementation of ', 'what is the best way to ', 'what is the proper way to ',
+                   'is it possible to ', 'would it be possible to '
+                   'how ', 'c# how to ', 'c# how ', 'c# - ', 'c# ']:
         if language.lower().startswith(opener):
             language = language[len(opener):]
+    for closer in [' in c#', ' with c#', ' using c#', ' c#']:
+        if language.lower().endswith(closer):
+            language = language[:-len(closer)]
     language = language.lower()
     return language
 
@@ -44,8 +49,12 @@ def tokenize_text(text: str) -> List[str]:
     return ['<s>'] + words_re.findall(text) + ['</s>']
 
 
-def trim_to_len(summaries, codes, max_summary_len, max_source_code_len,
-                oversize_sequence_behavior='leave_out'):
+def sequences_to_tensors(summaries, codes, max_summary_len, max_source_code_len,
+                         oversize_sequence_behavior='leave_out', dtype='int32'):
+    """
+    Prepares a set of tokenized summaries and codes for use in a model by padding them to a fixed length.
+    By default, oversize examples are left out, but you may also set oversize_sequence_behavior to 'truncate'
+    """
     assert len(summaries) == len(codes)
     trimmed_summaries = []
     trimmed_codes = []
@@ -54,8 +63,8 @@ def trim_to_len(summaries, codes, max_summary_len, max_source_code_len,
                 or len(summaries[i]) <= max_summary_len and len(codes[i]) <= max_source_code_len:
             trimmed_summaries.append(summaries[i])
             trimmed_codes.append(codes[i])
-    trimmed_summaries = pad_sequences(trimmed_summaries, maxlen=max_summary_len, padding='post', value=0)
-    trimmed_codes = pad_sequences(trimmed_codes, maxlen=max_source_code_len, padding='post', value=0)
+    trimmed_summaries = pad_sequences(trimmed_summaries, maxlen=max_summary_len, padding='post', value=0, dtype=dtype)
+    trimmed_codes = pad_sequences(trimmed_codes, maxlen=max_source_code_len, padding='post', value=0, dtype=dtype)
     return trimmed_summaries, trimmed_codes
 
 
@@ -156,10 +165,10 @@ def eof_texts(texts: List[str]) -> List[str]:
 def process_dataset(summaries, codes, language_seqifier, code_seqifier, l_dim, c_dim,
                     oversize_sequence_behavior='leave_out'):
     assert len(summaries) == len(codes)
-    summaries_seq = language_seqifier.seqify_texts(summaries)
-    codes_seq = code_seqifier.seqify_texts(codes)
-    summaries_trim, codes_trim = trim_to_len(summaries_seq, codes_seq, l_dim, c_dim,
-                                             oversize_sequence_behavior=oversize_sequence_behavior)
+    summaries_seq = language_seqifier.tokenize_texts(summaries)
+    codes_seq = code_seqifier.tokenize_texts(codes)
+    summaries_trim, codes_trim = sequences_to_tensors(summaries_seq, codes_seq, l_dim, c_dim,
+                                                      oversize_sequence_behavior=oversize_sequence_behavior)
     return summaries_trim, codes_trim
 
 

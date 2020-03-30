@@ -4,7 +4,7 @@ import tqdm
 import os
 import json
 import text_data_utils as tdu
-from seqifier import Seqifier
+from tokenizer import Tokenizer
 
 
 def recon_loss_bow(true, pred_prob, vocab_size):
@@ -214,7 +214,7 @@ recon_losses = {
 
 
 class BimodalVariationalAutoEncoder(tf.Module):
-    def __init__(self, model_path, seqifiers_training_texts=(None, None), tf_name='bvae'):
+    def __init__(self, model_path, tokenizers_training_texts=(None, None), tf_name='bvae'):
 
         super(BimodalVariationalAutoEncoder, self).__init__(name=tf_name)
 
@@ -224,14 +224,14 @@ class BimodalVariationalAutoEncoder(tf.Module):
         with open(model_path + "model_description.json", 'r') as json_file:
             model_description = json.load(json_file)
 
-        self.language_seqifier = Seqifier(model_description['language_seq_type'],
-                                          model_path + model_description['language_seq_path'],
-                                          training_texts=seqifiers_training_texts[0],
-                                          target_vocab_size=model_description['language_target_vocab_size'])
-        self.code_seqifier = Seqifier(model_description['source_code_seq_type'],
-                                      model_path + model_description['source_code_seq_path'],
-                                      training_texts=seqifiers_training_texts[1],
-                                      target_vocab_size=model_description['source_code_target_vocab_size'])
+        self.language_tokenizer = Tokenizer(model_description['language_tokenizer_type'],
+                                            model_path + model_description['language_tokenizer_path'],
+                                            training_texts=tokenizers_training_texts[0],
+                                            target_vocab_size=model_description['language_target_vocab_size'])
+        self.code_tokenizer = Tokenizer(model_description['code_tokenizer_type'],
+                                        model_path + model_description['code_tokenizer_path'],
+                                        training_texts=tokenizers_training_texts[1],
+                                        target_vocab_size=model_description['code_target_vocab_size'])
 
         self.l_dim = model_description['l_dim']
         self.c_dim = model_description['c_dim']
@@ -241,7 +241,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
         self.language_encoder = encoders[model_description['l_enc_type']](
             self.latent_dim,
-            self.language_seqifier.vocab_size,
+            self.language_tokenizer.vocab_size,
             model_description['l_emb_dim'],
             model_description['l_enc_dropout'],
             name='language_encoder'
@@ -249,7 +249,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
         self.source_code_encoder = encoders[model_description['c_enc_type']](
             self.latent_dim,
-            self.code_seqifier.vocab_size,
+            self.code_tokenizer.vocab_size,
             model_description['c_emb_dim'],
             model_description['c_enc_dropout'],
             name='source_code_encoder'
@@ -257,21 +257,21 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
         self.language_decoder = decoders[model_description['l_dec_type']](
             self.latent_dim,
-            self.language_seqifier.vocab_size,
+            self.language_tokenizer.vocab_size,
             model_description['l_emb_dim'],
             model_description['l_dec_dropout'],
-            self.language_seqifier.start_token,
-            self.language_seqifier.end_token,
+            self.language_tokenizer.start_token,
+            self.language_tokenizer.end_token,
             name='language_decoder'
         )
 
         self.source_code_decoder = decoders[model_description['c_dec_type']](
             self.latent_dim,
-            self.code_seqifier.vocab_size,
+            self.code_tokenizer.vocab_size,
             model_description['c_emb_dim'],
             model_description['c_dec_dropout'],
-            self.code_seqifier.start_token,
-            self.code_seqifier.end_token,
+            self.code_tokenizer.start_token,
+            self.code_tokenizer.end_token,
             name='source_code_decoder'
         )
 
@@ -302,8 +302,8 @@ class BimodalVariationalAutoEncoder(tf.Module):
             source_code_kld = mpreg_loss(enc_source_code_dists, mean_dists)
         else:
             raise Exception("Invalid KL-divergence loss: %s" % self.kld_loss_type)
-        language_recon = self.language_recon_loss(summaries, dec_language, self.language_seqifier.vocab_size)
-        source_code_recon = self.source_code_recon_loss(codes, dec_source_code, self.code_seqifier.vocab_size)
+        language_recon = self.language_recon_loss(summaries, dec_language, self.language_tokenizer.vocab_size)
+        source_code_recon = self.source_code_recon_loss(codes, dec_source_code, self.code_tokenizer.vocab_size)
         final_loss = al * language_recon + bl * language_kld + ac * source_code_recon + bc * source_code_kld
         return final_loss
 
@@ -332,13 +332,13 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
         assert len(train_summaries) == len(train_codes)
 
-        print("Seqifying datasets, and removing examples that are too long...")
-        train_summaries = self.language_seqifier.seqify_texts(train_summaries)
-        train_codes = self.code_seqifier.seqify_texts(train_codes)
-        train_summaries, train_codes = tdu.trim_to_len(train_summaries, train_codes, self.l_dim, self.c_dim)
-        val_summaries = self.language_seqifier.seqify_texts(val_summaries)
-        val_codes = self.code_seqifier.seqify_texts(val_codes)
-        val_summaries, val_codes = tdu.trim_to_len(val_summaries, val_codes, self.l_dim, self.c_dim)
+        print("Tokenizing datasets, and removing examples that are too long...")
+        train_summaries = self.language_tokenizer.tokenize_texts(train_summaries)
+        train_codes = self.code_tokenizer.tokenize_texts(train_codes)
+        train_summaries, train_codes = tdu.sequences_to_tensors(train_summaries, train_codes, self.l_dim, self.c_dim)
+        val_summaries = self.language_tokenizer.tokenize_texts(val_summaries)
+        val_codes = self.code_tokenizer.tokenize_texts(val_codes)
+        val_summaries, val_codes = tdu.sequences_to_tensors(val_summaries, val_codes, self.l_dim, self.c_dim)
 
         len_train = train_summaries.shape[0]
         batches_per_epoch = int(len_train / batch_size)
@@ -375,25 +375,25 @@ class BimodalVariationalAutoEncoder(tf.Module):
                     self.optimizer.learning_rate.assign(self.optimizer.learning_rate * 0.2)
 
     def summaries_to_latent(self, summaries):
-        seqified = self.language_seqifier.seqify_texts(summaries)
-        padded = tf.keras.preprocessing.sequence.pad_sequences(seqified, maxlen=self.l_dim, padding='post', value=0)
+        tokenized = self.language_tokenizer.tokenize_texts(summaries)
+        padded = tf.keras.preprocessing.sequence.pad_sequences(tokenized, maxlen=self.l_dim, padding='post', value=0)
         latent = self.language_encoder(padded, training=False)
         return latent
 
     def codes_to_latent(self, codes):
-        seqified = self.code_seqifier.seqify_texts(codes)
-        padded = tf.keras.preprocessing.sequence.pad_sequences(seqified, maxlen=self.l_dim, padding='post', value=0)
+        tokenized = self.code_tokenizer.tokenize_texts(codes)
+        padded = tf.keras.preprocessing.sequence.pad_sequences(tokenized, maxlen=self.l_dim, padding='post', value=0)
         latent = self.source_code_encoder(padded, training=False)
         return latent
 
     def latent_to_summaries(self, latent):
         mean = latent.mean()
-        seqified = self.language_decoder(mean, training=False)
-        summaries = self.language_seqifier.de_seqify_texts(seqified)
+        tokenized = self.language_decoder(mean, training=False)
+        summaries = self.language_tokenizer.de_tokenize_texts(tokenized)
         return summaries
 
     def latent_to_codes(self, latent):
         mean = latent.mean()
-        seqified = self.source_code_decoder(mean, training=False)
-        codes = self.code_seqifier.de_seqify_texts(seqified)
+        tokenized = self.source_code_decoder(mean, training=False)
+        codes = self.code_tokenizer.de_tokenize_texts(tokenized)
         return codes
