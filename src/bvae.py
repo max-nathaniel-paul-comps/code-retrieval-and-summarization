@@ -5,6 +5,7 @@ import os
 import json
 import text_data_utils as tdu
 from tokenizer import Tokenizer
+import transformer
 
 
 def recon_loss_bow(true, pred_prob, vocab_size):
@@ -98,9 +99,26 @@ class MlpBowEncoder(tf.keras.models.Sequential):
         return dists
 
 
+class TransformerEncoder(tf.keras.Model):
+    def __init__(self, latent_dim, vocab_size, emb_dim, input_dropout_rate, name='variational_encoder'):
+        super(TransformerEncoder, self).__init__(name=name)
+        self.transformer_encoder = transformer.UTEncoder(6, 512, 8, 2048, vocab_size, 1024)
+        self.flatten = tf.keras.layers.Flatten()
+        self.projection = tf.keras.layers.Dense(latent_dim * 2)
+        self.latent_dim = latent_dim
+
+    def call(self, inputs, training=False, **kwargs):
+        mask = transformer.create_padding_mask(inputs)
+        transformed = self.transformer_encoder(inputs, training, mask)
+        flattened = self.flatten(transformed)
+        projected = self.projection(flattened)
+        dists = create_latent_dists(projected, self.latent_dim)
+        return dists
+
+
 class MlpBowDecoder(tf.keras.models.Sequential):
     def __init__(self, latent_dim, vocab_size, emb_dim, teacher_dropout_rate, start_token, end_token,
-                 name='decoder'):
+                 name='decoder', **kwargs):
         super(MlpBowDecoder, self).__init__(
             [
                 tf.keras.layers.Dense(latent_dim * 2, input_dim=latent_dim, name='encoded_to_hidden'),
@@ -116,7 +134,7 @@ class MlpBowDecoder(tf.keras.models.Sequential):
 
 class RecurrentDecoder(tf.keras.Model):
     def __init__(self, latent_dim, vocab_size, emb_dim, teacher_dropout_rate, start_token, end_token,
-                 name='gru_decoder'):
+                 name='gru_decoder', **kwargs):
         super(RecurrentDecoder, self).__init__(name=name)
         self.vocab_size = vocab_size
         self.start_token = start_token
@@ -194,13 +212,66 @@ class RecurrentDecoder(tf.keras.Model):
             return self.beam_search_decode(latent_samples)
 
 
+class TransformerDecoder(tf.keras.Model):
+    def __init__(self, latent_dim, vocab_size, emb_dim, teacher_dropout_rate, start_token, end_token,
+                 reconstructed_dim=0, name='decoder', **kwargs):
+        super(TransformerDecoder, self).__init__(name=name)
+        self.teacher_dropout = Dropout(teacher_dropout_rate)
+        self.projection = tf.keras.layers.Dense(reconstructed_dim * 128)
+        self.reshape = tf.keras.layers.Reshape((reconstructed_dim, 128))
+        self.transformer_decoder = transformer.UTDecoder(6, 512, 8, 2048, vocab_size, reconstructed_dim)
+        self.look_ahead_mask = transformer.create_look_ahead_mask(reconstructed_dim)
+        self.dense = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(vocab_size))
+        self.start_token = start_token
+        self.end_token = end_token
+        self.reconstructed_dim = reconstructed_dim
+
+    def teacher_forcing_decode(self, latent_samples, true_outputs, training):
+        teacher_slice = true_outputs[:, :-1]
+        teacher_dropped = self.teacher_dropout(teacher_slice, training=training)
+        projected = self.projection(latent_samples)
+        reshaped = self.reshape(projected)
+        padding_mask = transformer.create_padding_mask(teacher_dropped)
+        transformed, _ = self.transformer_decoder(teacher_dropped, reshaped, training, self.look_ahead_mask,
+                                                  padding_mask)
+        outputs = self.dense(transformed)
+        return outputs
+
+    def beam_search_decode(self, latent_samples):
+        projected = self.projection(latent_samples)
+        reshaped = self.reshape(projected)
+        outputs = []
+        for example in reshaped:
+            output = [self.start_token]
+            for i in range(self.reconstructed_dim):
+                look_ahead_mask = tf.zeros((1, 1), dtype=tf.float32)
+                output_tensor = tf.expand_dims(output, 0)
+                padding_mask = tf.zeros((1, 1, 1, 1), dtype=tf.float32)
+                transformed, _ = self.transformer_decoder(output_tensor, tf.expand_dims(example, 0), False,
+                                                          look_ahead_mask, padding_mask)
+                prediction = tf.argmax(self.dense(transformed), axis=-1)[0][-1].numpy()
+                output.append(prediction)
+                if output[-1] == self.end_token:
+                    break
+            outputs.append(output)
+        return outputs
+
+    def call(self, latent_samples, true_outputs=None, training=False, **kwargs):
+        if true_outputs is not None:
+            return self.teacher_forcing_decode(latent_samples, true_outputs, training)
+        else:
+            return self.beam_search_decode(latent_samples)
+
+
 encoders = {
     'mlp_bow': MlpBowEncoder,
+    'transformer': TransformerEncoder
 }
 
 decoders = {
     'mlp_bow': MlpBowDecoder,
-    'recurrent': RecurrentDecoder
+    'recurrent': RecurrentDecoder,
+    'transformer': TransformerDecoder
 }
 
 optimizers = {
@@ -262,6 +333,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
             model_description['l_dec_dropout'],
             self.language_tokenizer.start_token,
             self.language_tokenizer.end_token,
+            reconstructed_dim=self.l_dim - 1,
             name='language_decoder'
         )
 
@@ -272,6 +344,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
             model_description['c_dec_dropout'],
             self.code_tokenizer.start_token,
             self.code_tokenizer.end_token,
+            reconstructed_dim=self.c_dim - 1,
             name='source_code_decoder'
         )
 
