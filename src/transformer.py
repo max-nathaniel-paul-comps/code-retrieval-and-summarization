@@ -14,10 +14,6 @@ from tokenizer import Tokenizer
 # It has been refactored to make it object-oriented, and some additional controls have been added to the training loop
 
 
-MAX_SUMMARY_LENGTH = 50
-MAX_CODE_LENGTH = 150
-
-
 def get_angles(pos, i, d_model):
     angle_rates = 1 / np.power(10000, (2 * (i//2)) / np.float32(d_model))
     return pos * angle_rates
@@ -350,17 +346,26 @@ class UTDecoder(tf.keras.layers.Layer):
 
 class Transformer(tf.keras.Model):
     def __init__(self, num_layers, d_model, num_heads, dff, input_vocab_size,
-                 target_vocab_size, pe_input, pe_target, model_path, code_seqifier, language_seqifier, rate=0.1):
+                 target_vocab_size, pe_input, pe_target, model_path, input_tokenizer, output_tokenizer, rate=0.1,
+                 universal=True, max_input_len=40, max_output_len=40):
         super(Transformer, self).__init__()
 
-        self.code_seqifier = code_seqifier
-        self.language_seqifier = language_seqifier
+        self.max_input_len = max_input_len
+        self.max_output_len = max_output_len
 
-        self.encoder = UTEncoder(num_layers, d_model, num_heads, dff,
-                               input_vocab_size, pe_input, rate)
+        self.input_tokenizer = input_tokenizer
+        self.output_tokenizer = output_tokenizer
 
-        self.decoder = UTDecoder(num_layers, d_model, num_heads, dff,
-                               target_vocab_size, pe_target, rate)
+        if universal:
+            self.encoder = UTEncoder(num_layers, d_model, num_heads, dff,
+                                     input_vocab_size, pe_input, rate)
+            self.decoder = UTDecoder(num_layers, d_model, num_heads, dff,
+                                     target_vocab_size, pe_target, rate)
+        else:
+            self.encoder = Encoder(num_layers, d_model, num_heads, dff,
+                                   input_vocab_size, pe_input, rate)
+            self.decoder = Decoder(num_layers, d_model, num_heads, dff,
+                                   target_vocab_size, pe_target, rate)
 
         self.final_layer = tf.keras.layers.Dense(target_vocab_size)
 
@@ -396,7 +401,6 @@ class Transformer(tf.keras.Model):
 
         return final_output, attention_weights
 
-
     @tf.function(input_signature=[
         tf.TensorSpec(shape=(None, None), dtype=tf.int64),
         tf.TensorSpec(shape=(None, None), dtype=tf.int64),
@@ -431,7 +435,7 @@ class Transformer(tf.keras.Model):
             tar_real = tar[:, 1:]
             enc_padding_mask, combined_mask, dec_padding_mask = create_masks(inp, tar_inp)
             predictions, _ = self.call(inp, tar_inp,
-                                       True,
+                                       False,
                                        enc_padding_mask,
                                        combined_mask,
                                        dec_padding_mask)
@@ -442,15 +446,17 @@ class Transformer(tf.keras.Model):
 
     def train(self, train_codes, train_summaries, val_codes, val_summaries, batch_size=64, num_epochs=15):
 
-        train_summaries = self.language_seqifier.tokenize_texts(train_summaries)
-        train_codes = self.code_seqifier.tokenize_texts(train_codes)
-        train_summaries, train_codes = tdu.sequences_to_tensors(train_summaries, train_codes, MAX_SUMMARY_LENGTH,
-                                                                MAX_CODE_LENGTH, dtype='int64')
+        train_summaries = self.output_tokenizer.tokenize_texts(train_summaries)
+        train_codes = self.input_tokenizer.tokenize_texts(train_codes)
+        train_summaries, train_codes = tdu.sequences_to_tensors(train_summaries, train_codes, self.max_output_len,
+                                                                self.max_input_len, dtype='int64')
 
-        val_summaries = self.language_seqifier.tokenize_texts(val_summaries)
-        val_codes = self.code_seqifier.tokenize_texts(val_codes)
-        val_summaries, val_codes = tdu.sequences_to_tensors(val_summaries, val_codes, MAX_SUMMARY_LENGTH,
-                                                            MAX_CODE_LENGTH, dtype='int64')
+        val_summaries = self.output_tokenizer.tokenize_texts(val_summaries)
+        val_codes = self.input_tokenizer.tokenize_texts(val_codes)
+        val_summaries, val_codes = tdu.sequences_to_tensors(val_summaries, val_codes, self.max_output_len,
+                                                            self.max_input_len, dtype='int64')
+
+        print("Training on %s samples, validating on %s samples." % (train_summaries.shape[0], val_summaries.shape[0]))
 
         batches_per_epoch = int(train_codes.shape[0] / batch_size)
 
@@ -493,14 +499,13 @@ class Transformer(tf.keras.Model):
 
     def evaluate_on_sentence(self, inp_sentence, max_length):
 
-        # inp sentence is portuguese, hence adding the start and end token
-        encoder_input = self.code_seqifier.tokenize_texts([inp_sentence])
-        encoder_input = tf.keras.preprocessing.sequence.pad_sequences(encoder_input, maxlen=MAX_CODE_LENGTH,
+        encoder_input = self.input_tokenizer.tokenize_texts([inp_sentence])
+        encoder_input = tf.keras.preprocessing.sequence.pad_sequences(encoder_input, maxlen=self.max_input_len,
                                                                       dtype='int64', padding='post', value=0)
 
         # as the target is english, the first word to the transformer should be the
         # english start token.
-        decoder_input = [self.language_seqifier.start_token]
+        decoder_input = [self.output_tokenizer.start_token]
         output = tf.expand_dims(decoder_input, 0)
 
         for i in range(max_length):
@@ -521,7 +526,7 @@ class Transformer(tf.keras.Model):
             predicted_id = tf.cast(tf.argmax(predictions, axis=-1), tf.int32)
 
             # return the result if the predicted_id is equal to the end token
-            if predicted_id == self.language_seqifier.end_token:
+            if predicted_id == self.output_tokenizer.end_token:
                 return tf.squeeze(output, axis=0), attention_weights
 
             # concatentate the predicted_id to the output which is given to the decoder
@@ -533,7 +538,7 @@ class Transformer(tf.keras.Model):
     def plot_attention_weights(self, attention, sentence, result, layer):
         fig = plt.figure(figsize=(16, 8))
 
-        sentence = self.code_seqifier.tokenize_texts([sentence])[0]
+        sentence = self.input_tokenizer.tokenize_texts([sentence])[0]
 
         attention = tf.squeeze(attention[layer], axis=0)
 
@@ -551,11 +556,11 @@ class Transformer(tf.keras.Model):
             ax.set_ylim(len(result) - 1.5, -0.5)
 
             ax.set_xticklabels(
-                [self.code_seqifier.de_tokenize_texts([[i]])[0] for i in sentence],
+                [self.input_tokenizer.de_tokenize_texts([[i]])[0] for i in sentence],
                 fontdict=fontdict, rotation=90)
 
-            ax.set_yticklabels([self.language_seqifier.de_tokenize_texts([[i]]) for i in result
-                                if i < self.language_seqifier.vocab_size],
+            ax.set_yticklabels([self.output_tokenizer.de_tokenize_texts([[i]]) for i in result
+                                if i < self.output_tokenizer.vocab_size],
                                fontdict=fontdict)
 
             ax.set_xlabel('Head {}'.format(head + 1))
@@ -564,9 +569,9 @@ class Transformer(tf.keras.Model):
         plt.show()
 
     def translate(self, sentence, plot=''):
-        result, attention_weights = self.evaluate_on_sentence(sentence, MAX_SUMMARY_LENGTH)
+        result, attention_weights = self.evaluate_on_sentence(sentence, self.max_output_len)
 
-        predicted_sentence = self.language_seqifier.de_tokenize_texts([result])[0]
+        predicted_sentence = self.output_tokenizer.de_tokenize_texts([result])[0]
 
         print('Input: {}'.format(sentence))
         print('Predicted translation: {}'.format(predicted_sentence))
@@ -628,7 +633,7 @@ def create_masks(inp, tar):
     return enc_padding_mask, combined_mask, dec_padding_mask
 
 
-def main(model_path="../models/transformer_6/", train=True):
+def main(model_path="../models/transformer_11/", train=False):
 
     print("Loading dataset...")
     train_summaries, train_codes = tdu.load_iyer_file("../data/iyer_csharp/train.txt")
@@ -649,9 +654,9 @@ def main(model_path="../models/transformer_6/", train=True):
 
     print("Loading transformer...")
 
-    num_layers = 6
-    d_model = 512
-    dff = 2048
+    num_layers = 4
+    d_model = 128
+    dff = 512
     num_heads = 8
 
     input_vocab_size = code_seqifier.vocab_size

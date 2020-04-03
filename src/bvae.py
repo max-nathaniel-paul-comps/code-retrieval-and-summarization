@@ -9,10 +9,14 @@ import transformer
 
 
 def recon_loss_bow(true, pred_prob, vocab_size):
-    mask = tf.logical_not(tf.equal(true, 0))
-    true_ragged = tf.ragged.boolean_mask(true, mask)
-    true_one_hot = tf.one_hot(true_ragged, vocab_size, axis=-1)
-    true_bags_of_words = tf.reduce_mean(true_one_hot, axis=-2)
+    def get_term_frequencies(x):
+        non_zero = tf.math.count_nonzero(x, dtype=tf.float32)
+        bin_count = tf.math.bincount(x, minlength=vocab_size, maxlength=vocab_size, dtype=tf.float32)
+        frequencies = bin_count[1:] / non_zero
+        left_pad = tf.constant([0.0], dtype=tf.float32)
+        full_frequencies = tf.concat([left_pad, frequencies], 0)
+        return full_frequencies
+    true_bags_of_words = tf.map_fn(get_term_frequencies, true, dtype=tf.float32)
     recon_all = tf.nn.softmax_cross_entropy_with_logits(tf.stop_gradient(true_bags_of_words), pred_prob, axis=-1)
     recon = tf.reduce_mean(recon_all)
     return recon
@@ -102,7 +106,7 @@ class MlpBowEncoder(tf.keras.models.Sequential):
 class TransformerEncoder(tf.keras.Model):
     def __init__(self, latent_dim, vocab_size, emb_dim, input_dropout_rate, name='variational_encoder'):
         super(TransformerEncoder, self).__init__(name=name)
-        self.transformer_encoder = transformer.UTEncoder(6, 512, 8, 2048, vocab_size, 1024)
+        self.transformer_encoder = transformer.UTEncoder(4, 128, 8, 512, vocab_size, 1024)
         self.flatten = tf.keras.layers.Flatten()
         self.projection = tf.keras.layers.Dense(latent_dim * 2)
         self.latent_dim = latent_dim
@@ -216,10 +220,14 @@ class TransformerDecoder(tf.keras.Model):
     def __init__(self, latent_dim, vocab_size, emb_dim, teacher_dropout_rate, start_token, end_token,
                  reconstructed_dim=0, name='decoder', **kwargs):
         super(TransformerDecoder, self).__init__(name=name)
+        self.up_projection = tf.keras.Sequential([
+            tf.keras.layers.Dense(reconstructed_dim * 32),
+            tf.keras.layers.LeakyReLU(),
+            tf.keras.layers.Reshape((reconstructed_dim, 32)),
+            tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(128))
+        ])
         self.teacher_dropout = Dropout(teacher_dropout_rate)
-        self.projection = tf.keras.layers.Dense(reconstructed_dim * 128)
-        self.reshape = tf.keras.layers.Reshape((reconstructed_dim, 128))
-        self.transformer_decoder = transformer.UTDecoder(6, 512, 8, 2048, vocab_size, reconstructed_dim)
+        self.transformer_decoder = transformer.UTDecoder(4, 128, 8, 512, vocab_size, reconstructed_dim)
         self.look_ahead_mask = transformer.create_look_ahead_mask(reconstructed_dim)
         self.dense = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(vocab_size))
         self.start_token = start_token
@@ -229,19 +237,17 @@ class TransformerDecoder(tf.keras.Model):
     def teacher_forcing_decode(self, latent_samples, true_outputs, training):
         teacher_slice = true_outputs[:, :-1]
         teacher_dropped = self.teacher_dropout(teacher_slice, training=training)
-        projected = self.projection(latent_samples)
-        reshaped = self.reshape(projected)
+        projected = self.up_projection(latent_samples)
         padding_mask = transformer.create_padding_mask(teacher_dropped)
-        transformed, _ = self.transformer_decoder(teacher_dropped, reshaped, training, self.look_ahead_mask,
+        transformed, _ = self.transformer_decoder(teacher_dropped, projected, training, self.look_ahead_mask,
                                                   padding_mask)
         outputs = self.dense(transformed)
         return outputs
 
     def beam_search_decode(self, latent_samples):
-        projected = self.projection(latent_samples)
-        reshaped = self.reshape(projected)
+        projected = self.up_projection(latent_samples)
         outputs = []
-        for example in reshaped:
+        for example in projected:
             output = [self.start_token]
             for i in range(self.reconstructed_dim):
                 look_ahead_mask = tf.zeros((1, 1), dtype=tf.float32)
@@ -413,6 +419,8 @@ class BimodalVariationalAutoEncoder(tf.Module):
         val_codes = self.code_tokenizer.tokenize_texts(val_codes)
         val_summaries, val_codes = tdu.sequences_to_tensors(val_summaries, val_codes, self.l_dim, self.c_dim)
 
+        dataset = tf.data.Dataset.from_tensor_slices((train_summaries, train_codes))
+
         len_train = train_summaries.shape[0]
         batches_per_epoch = int(len_train / batch_size)
         print("Training on %s samples, validating on %s samples" % (len_train, val_summaries.shape[0]))
@@ -423,10 +431,15 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
         for epoch in range(num_epochs):
 
+            shuffled = dataset.shuffle(len_train, reshuffle_each_iteration=True)
+            shuffled_batches = shuffled.batch(batch_size, drop_remainder=True)
+            batches_iter = iter(shuffled_batches)
+
             batches = tqdm.trange(batches_per_epoch)
             for batch in batches:
-                loss = self.training_step(train_summaries[batch * batch_size: batch * batch_size + batch_size],
-                                          train_codes[batch * batch_size: batch * batch_size + batch_size],
+                summaries_batch, codes_batch = next(batches_iter)
+                loss = self.training_step(summaries_batch,
+                                          codes_batch,
                                           self.optimizer)
                 batches.set_description("Epoch %s of %s, loss=%.4f" % (epoch + 1, num_epochs, loss.numpy()))
 

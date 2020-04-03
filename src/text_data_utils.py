@@ -2,6 +2,7 @@ import re
 import csv
 import html
 from typing import Tuple, List
+import tensorflow as tf
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from CSharp4Lexer import *
 
@@ -63,9 +64,13 @@ def sequences_to_tensors(summaries, codes, max_summary_len, max_source_code_len,
                 or len(summaries[i]) <= max_summary_len and len(codes[i]) <= max_source_code_len:
             trimmed_summaries.append(summaries[i])
             trimmed_codes.append(codes[i])
+        else:
+            print("Warning: Leaving out oversize example at index %s" % i)
     trimmed_summaries = pad_sequences(trimmed_summaries, maxlen=max_summary_len, padding='post', value=0, dtype=dtype)
     trimmed_codes = pad_sequences(trimmed_codes, maxlen=max_source_code_len, padding='post', value=0, dtype=dtype)
-    return trimmed_summaries, trimmed_codes
+    summaries_tensor = tf.convert_to_tensor(trimmed_summaries)
+    codes_tensor = tf.convert_to_tensor(trimmed_codes)
+    return summaries_tensor, codes_tensor
 
 
 def load_edinburgh_dataset(path: str):

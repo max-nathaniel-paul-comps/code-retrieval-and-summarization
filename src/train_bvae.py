@@ -10,7 +10,7 @@ print("Loading dataset...")
 train_summaries, train_codes = load_iyer_file("../data/iyer_csharp/train.txt")
 val_summaries, val_codes = load_iyer_file("../data/iyer_csharp/valid.txt")
 
-print("Creating model and seqifiers from JSON description...")
+print("Creating model and tokenizers from JSON description...")
 model = BimodalVariationalAutoEncoder(model_path, tokenizers_training_texts=(train_summaries, train_codes))
 
 print("Starting training now...")

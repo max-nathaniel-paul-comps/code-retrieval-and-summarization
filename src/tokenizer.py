@@ -19,7 +19,7 @@ class Tokenizer(object):
                 with open(path, 'r') as json_file:
                     keras_tokenizer = tf.keras.preprocessing.text.tokenizer_from_json(json_file.read())
             else:
-                print("Could not find the seqifier save file '%s'. Creating the seqifier..." % path)
+                print("Could not find the tokenizer save file '%s'. Creating the tokenizer..." % path)
                 assert training_texts is not None
                 keras_tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=target_vocab_size, oov_token='<unk>',
                                                                         filters='', lower=False)
@@ -39,7 +39,7 @@ class Tokenizer(object):
             if os.path.isfile(path + ".subwords"):
                 subword_encoder = tfds.features.text.SubwordTextEncoder.load_from_file(path)
             else:
-                print("Could not find the seqifier save file '%s'. Creating the seqifier..." % (path + ".subwords"))
+                print("Could not find the tokenizer save file '%s'. Creating the tokenizer..." % (path + ".subwords"))
                 subword_encoder = tfds.features.text.SubwordTextEncoder.build_from_corpus(
                     tdu.eof_texts(training_texts), target_vocab_size, reserved_tokens=['<s>', '</s>']
                 )
