@@ -8,6 +8,11 @@ from tokenizer import Tokenizer
 import transformer
 
 
+gpu_devices = tf.config.experimental.list_physical_devices('GPU')
+for device in gpu_devices:
+    tf.config.experimental.set_memory_growth(device, True)
+
+
 def recon_loss_bow(true, pred_prob, vocab_size):
     def get_term_frequencies(x):
         non_zero = tf.math.count_nonzero(x, dtype=tf.float32)
@@ -103,19 +108,41 @@ class MlpBowEncoder(tf.keras.models.Sequential):
         return dists
 
 
+class RecurrentEncoder(tf.keras.Model):
+    def __init__(self, latent_dim, vocab_size, emb_dim, input_dropout_rate, name='gru_variational_encoder'):
+        super(RecurrentEncoder, self).__init__(name=name)
+        self.dropout = Dropout(input_dropout_rate)
+        self.embedding = tf.keras.layers.Embedding(vocab_size, emb_dim)
+        self.gru = tf.keras.layers.GRU(latent_dim * 2, return_sequences=False, return_state=True)
+        self.projection = tf.keras.layers.Dense(latent_dim * 2)
+        self.latent_dim = latent_dim
+
+    def call(self, inputs, training=False, **kwargs):
+        mask = tf.logical_not(tf.equal(inputs, 0))
+        dropped = self.dropout(inputs, training=training)
+        embedded = self.embedding(dropped)
+        _, final_gru_state = self.gru(embedded, mask=mask)
+        projected = self.projection(final_gru_state)
+        dists = create_latent_dists(projected, self.latent_dim)
+        return dists
+
+
 class TransformerEncoder(tf.keras.Model):
     def __init__(self, latent_dim, vocab_size, emb_dim, input_dropout_rate, name='variational_encoder'):
         super(TransformerEncoder, self).__init__(name=name)
         self.transformer_encoder = transformer.UTEncoder(4, 128, 8, 512, vocab_size, 1024)
-        self.flatten = tf.keras.layers.Flatten()
-        self.projection = tf.keras.layers.Dense(latent_dim * 2)
+        self.down_projection = tf.keras.Sequential([
+            tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(32)),
+            tf.keras.layers.LeakyReLU(),
+            tf.keras.layers.Flatten(),
+            tf.keras.layers.Dense(latent_dim * 2)
+        ])
         self.latent_dim = latent_dim
 
     def call(self, inputs, training=False, **kwargs):
         mask = transformer.create_padding_mask(inputs)
         transformed = self.transformer_encoder(inputs, training, mask)
-        flattened = self.flatten(transformed)
-        projected = self.projection(flattened)
+        projected = self.down_projection(transformed)
         dists = create_latent_dists(projected, self.latent_dim)
         return dists
 
@@ -151,10 +178,11 @@ class RecurrentDecoder(tf.keras.Model):
 
     def teacher_forcing_decode(self, latent_samples, true_outputs, training=False):
         teacher_slice = true_outputs[:, :-1]
+        teacher_mask = tf.logical_not(tf.equal(teacher_slice, 0))
         teacher_dropped = self.teacher_dropout(teacher_slice, training=training)
         teacher_embedded = self.embedding(teacher_dropped)
         dense_out = self.dense(latent_samples)
-        gru_out = self.gru(teacher_embedded, initial_state=dense_out, training=training)
+        gru_out = self.gru(teacher_embedded, initial_state=dense_out, training=training, mask=teacher_mask)
         predicts = self.dense_2(gru_out)
         return predicts
 
@@ -271,6 +299,7 @@ class TransformerDecoder(tf.keras.Model):
 
 encoders = {
     'mlp_bow': MlpBowEncoder,
+    'recurrent': RecurrentEncoder,
     'transformer': TransformerEncoder
 }
 

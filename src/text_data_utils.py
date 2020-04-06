@@ -64,8 +64,9 @@ def sequences_to_tensors(summaries, codes, max_summary_len, max_source_code_len,
                 or len(summaries[i]) <= max_summary_len and len(codes[i]) <= max_source_code_len:
             trimmed_summaries.append(summaries[i])
             trimmed_codes.append(codes[i])
-        else:
-            print("Warning: Leaving out oversize example at index %s" % i)
+    if len(trimmed_summaries) < len(summaries):
+        print("Warning: %s examples were left out because they were oversize" %
+              (len(summaries) - len(trimmed_summaries)))
     trimmed_summaries = pad_sequences(trimmed_summaries, maxlen=max_summary_len, padding='post', value=0, dtype=dtype)
     trimmed_codes = pad_sequences(trimmed_codes, maxlen=max_source_code_len, padding='post', value=0, dtype=dtype)
     summaries_tensor = tf.convert_to_tensor(trimmed_summaries)
