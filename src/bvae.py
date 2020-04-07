@@ -14,14 +14,10 @@ for device in gpu_devices:
 
 
 def recon_loss_bow(true, pred_prob, vocab_size):
-    def get_term_frequencies(x):
-        non_zero = tf.math.count_nonzero(x, dtype=tf.float32)
-        bin_count = tf.math.bincount(x, minlength=vocab_size, maxlength=vocab_size, dtype=tf.float32)
-        frequencies = bin_count[1:] / non_zero
-        left_pad = tf.constant([0.0], dtype=tf.float32)
-        full_frequencies = tf.concat([left_pad, frequencies], 0)
-        return full_frequencies
-    true_bags_of_words = tf.map_fn(get_term_frequencies, true, dtype=tf.float32)
+    mask = tf.logical_not(tf.equal(true, 0))
+    true_ragged = tf.ragged.boolean_mask(true, mask)
+    true_one_hot = tf.one_hot(true_ragged, vocab_size, axis=-1)
+    true_bags_of_words = tf.reduce_mean(true_one_hot, axis=-2)
     recon_all = tf.nn.softmax_cross_entropy_with_logits(tf.stop_gradient(true_bags_of_words), pred_prob, axis=-1)
     recon = tf.reduce_mean(recon_all)
     return recon
@@ -86,12 +82,22 @@ class Dropout(tf.keras.layers.Layer):
             return inputs
 
 
+class Raggify(tf.keras.layers.Layer):
+    def __init__(self, name='raggify'):
+        super(Raggify, self).__init__(name=name)
+
+    def call(self, inputs, **kwargs):
+        mask = tf.logical_not(tf.equal(inputs, 0))
+        inputs_ragged = tf.ragged.boolean_mask(inputs, mask)
+        return inputs_ragged
+
+
 class MlpBowEncoder(tf.keras.models.Sequential):
-    def __init__(self, latent_dim, vocab_size, emb_dim, input_dropout_rate, name='variational_encoder'):
+    def __init__(self, latent_dim, vocab_size, emb_dim, name='variational_encoder', **kwargs):
         super(MlpBowEncoder, self).__init__(
             [
-                Dropout(input_dropout_rate),
-                tf.keras.layers.Embedding(vocab_size, emb_dim, mask_zero=True),
+                Raggify(),
+                tf.keras.layers.Embedding(vocab_size, emb_dim),
                 tf.keras.layers.GlobalAveragePooling1D(),
                 tf.keras.layers.Activation('tanh'),
                 tf.keras.layers.Dense(latent_dim * 2, name='emb_to_hidden'),
@@ -109,7 +115,8 @@ class MlpBowEncoder(tf.keras.models.Sequential):
 
 
 class RecurrentEncoder(tf.keras.Model):
-    def __init__(self, latent_dim, vocab_size, emb_dim, input_dropout_rate, name='gru_variational_encoder'):
+    def __init__(self, latent_dim, vocab_size, emb_dim, input_dropout_rate=0.0, name='gru_variational_encoder',
+                 **kwargs):
         super(RecurrentEncoder, self).__init__(name=name)
         self.dropout = Dropout(input_dropout_rate)
         self.embedding = tf.keras.layers.Embedding(vocab_size, emb_dim)
@@ -128,7 +135,7 @@ class RecurrentEncoder(tf.keras.Model):
 
 
 class TransformerEncoder(tf.keras.Model):
-    def __init__(self, latent_dim, vocab_size, emb_dim, input_dropout_rate, name='variational_encoder'):
+    def __init__(self, latent_dim, vocab_size, emb_dim, name='variational_encoder', **kwargs):
         super(TransformerEncoder, self).__init__(name=name)
         self.transformer_encoder = transformer.UTEncoder(4, 128, 8, 512, vocab_size, 1024)
         self.down_projection = tf.keras.Sequential([
@@ -349,7 +356,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
             self.latent_dim,
             self.language_tokenizer.vocab_size,
             model_description['l_emb_dim'],
-            model_description['l_enc_dropout'],
+            input_dropout_rate=model_description['l_enc_dropout'],
             name='language_encoder'
         )
 
@@ -357,7 +364,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
             self.latent_dim,
             self.code_tokenizer.vocab_size,
             model_description['c_emb_dim'],
-            model_description['c_enc_dropout'],
+            input_dropout_rate=model_description['c_enc_dropout'],
             name='source_code_encoder'
         )
 

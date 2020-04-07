@@ -13,7 +13,7 @@ def reciprocal_rank(sorted_indices, golden_idx):
 
 
 def evaluate_retrieval(summaries, codes, bvae_model_path,
-                       baseline='random', random_sample_size=50, num_samples=1000):
+                       baseline='ret_ir', random_sample_size=50, num_samples=100):
     if baseline == 'ret_ir':
         def baseline_model(summary, candidate_summaries, candidate_codes):
             summary = retir.shuffleQuery(summary, 0.2)
