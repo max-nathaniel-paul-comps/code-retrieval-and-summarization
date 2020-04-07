@@ -1,8 +1,9 @@
 import cosineSim as cs
-import tfidf as tf
+import tfidf
 import evaluator as ev
 import sys
 import random
+import string
 sys.path.append('../../src')
 import text_data_utils as tdu
 
@@ -25,11 +26,11 @@ def retir(query, candidates, numToReturn):
     cTokens = tdu.tokenize_texts(candidates)
     cScoreLists = []
     for token in qTokens:
-        qScores.append(tf.tfidf(token, query, candidates, TF_SCHEME))
+        qScores.append(tfidf.tfidf(token, query, candidates, TF_SCHEME))
     for cTokenList in range(len(cTokens)):
         temp = []
         for token in cTokens[cTokenList]:
-            temp.append(tf.tfidf(token, candidates[cTokenList], candidates, TF_SCHEME))
+            temp.append(tfidf.tfidf(token, candidates[cTokenList], candidates, TF_SCHEME))
         cScoreLists.append(temp)
 
     similarities = []
@@ -50,11 +51,11 @@ def retir_pt(query, candidates, numToReturn):
     cTokens = candidates
     cScoreLists = []
     for token in qTokens:
-        qScores.append(tf.tfidf_pt(token, query, candidates, TF_SCHEME))
+        qScores.append(tfidf.tfidf_pt(token, query, candidates, TF_SCHEME))
     for cTokenList in range(len(cTokens)):
         temp = []
         for token in cTokens[cTokenList]:
-            temp.append(tf.tfidf_pt(token, candidates[cTokenList], candidates, TF_SCHEME))
+            temp.append(tfidf.tfidf_pt(token, candidates[cTokenList], candidates, TF_SCHEME))
         cScoreLists.append(temp)
 
     similarities = []
@@ -94,7 +95,7 @@ def testOnData():
     print("complete")
 
 def setup(numToTake):
-    summaries, codes = tdu.load_iyer_file("../../data/iyer_csharp/test.txt")
+    summaries, codes = tdu.load_iyer_file("../../data/iyer_csharp/dev.txt")
     sumSnips, codeSnips = randSample(summaries, codes, numToTake)
     return sumSnips, codeSnips
 
@@ -133,8 +134,8 @@ def runSingleQuery():
 
 def shuffleQuery(q, chanceToShuffle):
     assert chanceToShuffle < 1.0 and chanceToShuffle >= 0.0
-    q = q[3:]
-    q = q[:-4]
+    #q = q[3:]
+    #q = q[:-4]
     returner = ""
     moveOver = False
     mover = ""
@@ -149,13 +150,14 @@ def shuffleQuery(q, chanceToShuffle):
             if ran < (chanceToShuffle/2) and DO_SHIFTING:
                 moveOver = True
                 mover = w
-    returner = "<s>" + returner + "</s>"
+    #returner = "<s>" + returner + "</s>"
     return returner
+
 def runShuffleQuery(numSnips, numTimes):
-    sumSnips, codeSnips = setup(numSnips)
     listRanks = []
     chance = 0.2
     for x in range(numTimes):
+        sumSnips, codeSnips = setup(numSnips)
         corInd = random.choice(range(len(codeSnips)))
         corSum = sumSnips[corInd]
         dPrint("Original summary:")
@@ -163,6 +165,7 @@ def runShuffleQuery(numSnips, numTimes):
         dPrint("For code:")
         dPrint(codeSnips[corInd])
         shuffled = shuffleQuery(corSum, chance)
+        #shuffled = randCharString(len(corSum))
         dPrint("Edited query:")
         dPrint(shuffled)
         returns = retir_pt(shuffled, sumSnips, numSnips)
@@ -172,6 +175,13 @@ def runShuffleQuery(numSnips, numTimes):
         print("Finished test ", x)
     print("Final MRR for shuffle: ")
     print(ev.mrr(listRanks))
+
+def randCharString(length):
+    returner = ""
+    checker = string.ascii_letters + " </>"
+    for x in range(length):
+        returner += random.choice(checker)
+    return returner
 
 def dPrint(string):
     if DEBUG_PRINT:

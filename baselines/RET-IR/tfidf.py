@@ -1,31 +1,14 @@
 import math
 import re
+import sys
+sys.path.append('../../src')
+import text_data_utils as tdu
 
-rSPLITS = r'(\w+|[,./?<>!@#$%^&*()_\-+=`~{}|\[\]\\:;\'"])'
 def termFrequency(term, doc, scheme):
     #Simple count
-    words = re.split(rSPLITS, doc)
-    termCount = countInDoc(term, words)
-    if scheme==0:
-        return termCount
-    #Boolean frequency
-    elif scheme==1:
-        if termCount > 0:
-            return 1
-        else:
-            return 0
-    #Adjusted for document length
-    elif scheme==2:
-        return termCount/len(words)
-    #logarithmically scaled freq
-    elif scheme==3:
-        return math.log(1 + termCount)
-    #augmented frequency, raw freq divided by freq of most occurring term
-    elif scheme==4:
-        return 0.5 + (0.5 * (termCount/(countHighestFreq(words))))
-    else:
-        print("ERROR: Invalid scheme")
-        return None
+    words = tdu.tokenize_texts(doc)
+    return termFrequency_pt(term, words, scheme)
+    
 
 def termFrequency_pt(term, doc_pt, scheme):
     #pt=pre-tokenized
@@ -70,7 +53,7 @@ def inverseDocFrequency(term, docs):
     N = len(docs)
     denom = 1
     for d in docs:
-        spl = re.split(rSPLITS, d)
+        spl = tdu.tokenize_text(d)
         if countInDoc(term, spl) > 0:
             denom += 1
     return N/denom
