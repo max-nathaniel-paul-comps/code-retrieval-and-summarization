@@ -1,39 +1,93 @@
 import os
 import text_data_utils as tdu
-import tensorflow as tf
 import tensorflow_datasets as tfds
+import json
+
+
+def build_vocab(training_texts, min_count, oov_token='<unk>'):
+    vocab = {}
+    for text in training_texts:
+        for token in text:
+            if token in vocab:
+                vocab[token] += 1
+            else:
+                vocab[token] = 1
+    final_vocab = {oov_token: 0}
+    i = 1
+    for token, count in vocab.items():
+        if count >= min_count:
+            final_vocab[token] = i
+            i += 1
+    return final_vocab
+
+
+def load_vocab_from_file(filename):
+    with open(filename) as json_file:
+        vocab = json.load(json_file)
+    return vocab
+
+
+def save_vocab_to_file(vocab, filename):
+    with open(filename, mode='w') as json_file:
+        json.dump(vocab, json_file)
+
+
+def encode_split_text(split_text, vocab):
+    encoded = []
+    for token in split_text:
+        if token in vocab:
+            encoded.append(vocab[token])
+        else:
+            encoded.append(0)
+    return encoded
+
+
+def decode_text(encoded_text, vocab):
+    decoded = []
+    for token_id in encoded_text:
+        for k, v in vocab.items():
+            if token_id == v:
+                decoded.append(k)
+                break
+    return decoded
 
 
 class Tokenizer(object):
 
-    def __init__(self, seq_type, path, target_vocab_size=None, training_texts=None):
+    def __init__(self, seq_type, path, target_vocab_size=None, vocab_min_count=None, training_texts=None):
+        """
+        :param seq_type: regex_based, antlr_csharp, or subwords
+        :param path: relative path to the tokenizer save file
+        :param target_vocab_size: Provide if creating a new subwords tokenizer.
+        :param vocab_min_count: Provide if creating a new regex_based or antlr_csharp tokenizer.
+        :param training_texts: Provide if creating a new tokenizer of any kind.
+        """
 
         if seq_type == 'regex_based' or seq_type == 'antlr_csharp':
             if seq_type == 'regex_based':
-                splitter = tdu.tokenize_texts
+                splitter = tdu.tokenize_text
             else:
-                splitter = tdu.parse_codes
+                splitter = tdu.parse_code
+
+            def de_splitter(text):
+                return " ".join(text)
+
             if not path.endswith(".json"):
                 path += ".json"
             if os.path.isfile(path):
-                with open(path, 'r') as json_file:
-                    keras_tokenizer = tf.keras.preprocessing.text.tokenizer_from_json(json_file.read())
+                vocab = load_vocab_from_file(path)
             else:
-                print("Could not find the tokenizer save file '%s'. Creating the tokenizer..." % path)
+                print("Could not find the tokenizer vocab save file '%s'. Creating the tokenizer..." % path)
                 assert training_texts is not None
-                keras_tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=target_vocab_size, oov_token='<unk>',
-                                                                        filters='', lower=False)
-                split_texts = splitter(training_texts)
-                keras_tokenizer.fit_on_texts(split_texts)
-                out_json = keras_tokenizer.to_json()
-                with open(path, 'w') as json_file:
-                    json_file.write(out_json)
+                split_texts = [splitter(text) for text in training_texts]
+                vocab = build_vocab(split_texts, vocab_min_count)
+                save_vocab_to_file(vocab, path)
 
-            self.vocab_size = keras_tokenizer.num_words
-            self._tokenizer_fn = lambda texts: keras_tokenizer.texts_to_sequences(splitter(texts))
-            self._de_tokenizer_fn = lambda seqs: keras_tokenizer.sequences_to_texts(seqs)
-            self.start_token = keras_tokenizer.texts_to_sequences(["<s>"])[0][0]
-            self.end_token = keras_tokenizer.texts_to_sequences(["</s>"])[0][0]
+            self.vocab_size = len(vocab)
+            self._tokenizer_fn = lambda texts: [encode_split_text(splitter(text), vocab) for text in texts]
+            self._de_tokenizer_fn = lambda seqs: [de_splitter(decode_text(seq, vocab)) for seq in seqs]
+            self.start_token = vocab['<s>']
+            self.end_token = vocab['</s>']
 
         elif seq_type == 'subwords':
             if os.path.isfile(path + ".subwords"):

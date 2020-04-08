@@ -124,29 +124,34 @@ def load_iyer_file(filename: str) -> Tuple[List[str], List[str]]:
     return summaries, codes
 
 
+def parse_code(code: str, max_len: int = 1000) -> List[str]:
+    lexer = CSharp4Lexer(InputStream(code))
+    token_stream = CommonTokenStream(lexer)
+    token_stream.fetch(3 * max_len)  # We fetch more than the max len so we can detect oversize codes later...
+    parsed_code = ['<s>']
+    for token in token_stream.tokens:
+        if token.type == 109:
+            parsed_code += ["CODE_INTEGER"]
+        elif token.type == 111:
+            parsed_code += ["CODE_REAL"]
+        elif token.type == 112:
+            parsed_code += ["CODE_CHAR"]
+        elif token.type == 113:
+            parsed_code += ["CODE_STRING"]
+        elif token.type == -1:
+            parsed_code += ["</s>"]
+            break
+        elif token.type in [4, 5, 6, 7, 8, 9]:  # whitespace and comments and newline
+            pass
+        else:
+            parsed_code += [str(token.text)]
+    return parsed_code
+
+
 def parse_codes(codes: List[str], max_len: int = 1000) -> List[List[str]]:
     parsed_codes = []
     for code in codes:
-        lexer = CSharp4Lexer(InputStream(code))
-        token_stream = CommonTokenStream(lexer)
-        token_stream.fetch(3 * max_len)  # We fetch more than the max len so we can detect oversize codes later...
-        parsed_code = ['<s>']
-        for token in token_stream.tokens:
-            if token.type == 109:
-                parsed_code += ["CODE_INTEGER"]
-            elif token.type == 111:
-                parsed_code += ["CODE_REAL"]
-            elif token.type == 112:
-                parsed_code += ["CODE_CHAR"]
-            elif token.type == 113:
-                parsed_code += ["CODE_STRING"]
-            elif token.type == -1:
-                parsed_code += ["</s>"]
-                break
-            elif token.type in [4, 5, 6, 7, 8, 9]:  # whitespace and comments and newline
-                pass
-            else:
-                parsed_code += [str(token.text)]
+        parsed_code = parse_code(code, max_len=max_len)
         parsed_codes.append(parsed_code)
     return parsed_codes
 

@@ -340,11 +340,13 @@ class BimodalVariationalAutoEncoder(tf.Module):
         self.language_tokenizer = Tokenizer(model_description['language_tokenizer_type'],
                                             model_path + model_description['language_tokenizer_path'],
                                             training_texts=tokenizers_training_texts[0],
-                                            target_vocab_size=model_description['language_target_vocab_size'])
+                                            target_vocab_size=model_description['language_target_vocab_size'],
+                                            vocab_min_count=model_description['language_vocab_min_count'])
         self.code_tokenizer = Tokenizer(model_description['code_tokenizer_type'],
                                         model_path + model_description['code_tokenizer_path'],
                                         training_texts=tokenizers_training_texts[1],
-                                        target_vocab_size=model_description['code_target_vocab_size'])
+                                        target_vocab_size=model_description['code_target_vocab_size'],
+                                        vocab_min_count=model_description['code_vocab_min_count'])
 
         self.l_dim = model_description['l_dim']
         self.c_dim = model_description['c_dim']
@@ -443,7 +445,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
         val_loss /= tf.cast(batches_per_val, tf.float32)
         return val_loss
 
-    def train(self, train_summaries, train_codes, val_summaries, val_codes, num_epochs=100, batch_size=128, patience=6):
+    def train(self, train_summaries, train_codes, val_summaries, val_codes, num_epochs=100, batch_size=64, patience=6):
 
         assert len(train_summaries) == len(train_codes)
 
