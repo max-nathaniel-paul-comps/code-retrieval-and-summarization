@@ -449,6 +449,8 @@ class Transformer(tf.keras.Model):
     def evaluate_on_sentence(self, inp_sentence, max_length):
 
         encoder_input = self.input_tokenizer.tokenize_texts([inp_sentence])
+        if len(encoder_input[0]) > self.max_input_len:
+            print("Warning: Input sentence exceeds maximum length")
         encoder_input = tf.keras.preprocessing.sequence.pad_sequences(encoder_input, maxlen=self.max_input_len,
                                                                       dtype='int64', padding='post', value=0)
 
