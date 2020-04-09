@@ -263,8 +263,11 @@ class Decoder(tf.keras.layers.Layer):
         self.embedding = tf.keras.layers.Embedding(target_vocab_size, d_model)
         self.pos_encoding = positional_encoding(maximum_position_encoding, d_model)
 
-        self.dec_layers = [DecoderLayer(d_model, num_heads, dff, rate)
-                           for _ in range(num_layers)]
+        if self.universal:
+            self.dec_layer = DecoderLayer(d_model, num_heads, dff, rate)
+        else:
+            self.dec_layers = [DecoderLayer(d_model, num_heads, dff, rate)
+                               for _ in range(num_layers)]
         self.dropout = tf.keras.layers.Dropout(rate)
 
     def call(self, x, enc_output, training,
@@ -283,7 +286,7 @@ class Decoder(tf.keras.layers.Layer):
         for i in range(self.num_layers):
             if self.universal:
                 x += self.pos_encoding[:, :seq_len, :]
-                x += self.pos_encoding[:, t, :]  # Timestep encoding
+                x += self.pos_encoding[:, i, :]  # Timestep encoding
                 x, block1, block2 = self.dec_layer(x, enc_output, training, look_ahead_mask, padding_mask)
             else:
                 x, block1, block2 = self.dec_layers[i](x, enc_output, training,
