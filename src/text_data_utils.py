@@ -39,7 +39,7 @@ def batch_proc(lis, fun):
 
 def preprocess_source_code(source_code: str) -> str:
     source_code = re.sub(r'(?<![:\"])(//.*?\n)', ' ', source_code)
-    source_code = source_code.replace('\n', ' ').replace('\\n', ' ')
+    source_code = source_code.replace('\\n', ' ').replace('\n', ' ')
     source_code = html.unescape(source_code)
     source_code = remove_excess_whitespace(source_code)
     return source_code

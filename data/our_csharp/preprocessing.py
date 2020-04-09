@@ -1,31 +1,34 @@
-import csv
+import random
 import sys
+import tqdm
 sys.path.append("../../src")
 from text_data_utils import *
 
 
-file = open('data3.csv', encoding='UTF8')
+file = open('data4.csv', encoding='UTF8')
 reader = csv.reader(file)
-newfile = open('processeed_data3.csv', 'w', encoding='UTF8', newline='')
-writer = csv.writer(newfile)
-rows = 0
-for row in reader:
-    if rows == 0:
-        writer.writerow(row)
-        rows += 1
-        continue
-    # if rows>20:
-    #     break
-    title = row[0]
-    title = preprocess_language(title)
-    answer = row[1]
-    code = answer[answer.find('<code>')+6:answer.find('</code>')]
-    code = preprocess_source_code(code)
-    if len(code) > 30 and len(code) < 600:
-        writer.writerow([title,code])
-        rows +=1
+examples = [row for row in reader]
+examples = examples[1:]
+random.seed()
+random.shuffle(examples)
+val_split = int(6 * len(examples) / 8)
+test_split = int(7 * len(examples) / 8)
 
-        if rows % 10000 == 0:
-            print(rows)
 
-print(rows)
+def write_csv_dataset(path, data_rows):
+    print("Creating %s" % path)
+    new_file = open(path, 'w', encoding='UTF8', newline='')
+    writer = csv.writer(new_file)
+    for i in tqdm.trange(len(data_rows)):
+        title = data_rows[i][0]
+        title = preprocess_language(title)
+        answer = data_rows[i][1]
+        code = answer[answer.find('<code>') + 6:answer.find('</code>')]
+        code = preprocess_source_code(code)
+        writer.writerow([title, code])
+
+
+write_csv_dataset("train.csv", examples[0: val_split])
+write_csv_dataset("val.csv", examples[val_split: test_split])
+write_csv_dataset("test.csv", examples[test_split:])
+
