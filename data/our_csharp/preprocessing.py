@@ -11,8 +11,8 @@ examples = [row for row in reader]
 examples = examples[1:]
 random.seed()
 random.shuffle(examples)
-val_split = int(6 * len(examples) / 8)
-test_split = int(7 * len(examples) / 8)
+val_split = int(14 * len(examples) / 16)
+test_split = int(15 * len(examples) / 16)
 
 
 def write_csv_dataset(path, data_rows):

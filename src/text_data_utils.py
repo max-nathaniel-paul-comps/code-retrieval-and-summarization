@@ -14,7 +14,7 @@ def remove_excess_whitespace(text: str) -> str:
 
 
 def preprocess_language(language: str) -> str:
-    language = language.replace('\n', ' ').replace('\\n', ' ')
+    language = language.replace('\\n', ' ').replace('\n', ' ')
     language = html.unescape(language)
     language = remove_excess_whitespace(language)
     if language[-1] == '?':
@@ -84,44 +84,35 @@ def load_edinburgh_dataset(path: str):
     return train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
 
 
-def load_csv_dataset(csv_filename: str):
-    file = open(csv_filename, encoding='UTF8')
-    reader = csv.reader(file)
-    summaries = []
-    codes = []
-    reader.__next__()
-    for row in reader:
-        summary = row[0]
-        summary = preprocess_language(summary)
-        code = row[1]
-        code = preprocess_source_code(code)
-        summaries.append(summary)
-        codes.append(code)
-    assert len(summaries) == len(codes)
-    val_point = int(len(summaries) * 0.8)
-    test_point = int(len(summaries) * 0.9)
-    train_summaries = summaries[:val_point]
-    train_codes = codes[:val_point]
-    val_summaries = summaries[val_point:test_point]
-    val_codes = codes[val_point:test_point]
-    test_summaries = summaries[test_point:]
-    test_codes = codes[test_point:]
-    return train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
-
-
 def load_iyer_file(filename: str) -> Tuple[List[str], List[str]]:
+    dataset = load_iyer_dataset(filename)
+    summaries = [example[0] for example in dataset]
+    codes = [example[1] for example in dataset]
+    return summaries, codes
+
+
+def load_iyer_dataset(filename: str) -> List[Tuple[str, str]]:
     file_contents = open(filename).readlines()
-    summaries = []
-    codes = []
+    dataset = []
     for line in file_contents:
         items = line.split('\t')
         if len(items) == 5:
             split_line = line.split('\t')
             summary = preprocess_language(split_line[2])
             code = preprocess_source_code(split_line[3])
-            summaries.append(summary)
-            codes.append(code)
-    return summaries, codes
+            dataset.append((summary, code))
+    return dataset
+
+
+def load_csv_dataset(filename: str) -> List[Tuple[str, str]]:
+    file = open(filename, encoding='UTF8')
+    reader = csv.reader(file)
+    dataset = []
+    for row in reader:
+        summary = preprocess_language(row[0])
+        code = preprocess_source_code(row[1])
+        dataset.append((summary, code))
+    return dataset
 
 
 def parse_code(code: str, max_len: int = 1000) -> List[str]:

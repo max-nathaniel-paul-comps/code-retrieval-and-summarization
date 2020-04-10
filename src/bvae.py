@@ -137,7 +137,7 @@ class RecurrentEncoder(tf.keras.Model):
 class TransformerEncoder(tf.keras.Model):
     def __init__(self, latent_dim, vocab_size, emb_dim, name='variational_encoder', **kwargs):
         super(TransformerEncoder, self).__init__(name=name)
-        self.transformer_encoder = transformer.UTEncoder(4, 128, 8, 512, vocab_size, 1024)
+        self.transformer_encoder = transformer.Encoder(4, 128, 8, 512, vocab_size, 1024, universal=True)
         self.down_projection = tf.keras.Sequential([
             tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(32)),
             tf.keras.layers.LeakyReLU(),
@@ -262,7 +262,7 @@ class TransformerDecoder(tf.keras.Model):
             tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(128))
         ])
         self.teacher_dropout = Dropout(teacher_dropout_rate)
-        self.transformer_decoder = transformer.UTDecoder(4, 128, 8, 512, vocab_size, reconstructed_dim)
+        self.transformer_decoder = transformer.Decoder(4, 128, 8, 512, vocab_size, reconstructed_dim, universal=True)
         self.look_ahead_mask = transformer.create_look_ahead_mask(reconstructed_dim)
         self.dense = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(vocab_size))
         self.start_token = start_token
@@ -327,7 +327,7 @@ recon_losses = {
 
 
 class BimodalVariationalAutoEncoder(tf.Module):
-    def __init__(self, model_path, tokenizers_training_texts=(None, None), tf_name='bvae'):
+    def __init__(self, model_path, tokenizers_training_texts=None, tf_name='bvae'):
 
         super(BimodalVariationalAutoEncoder, self).__init__(name=tf_name)
 
@@ -337,14 +337,21 @@ class BimodalVariationalAutoEncoder(tf.Module):
         with open(model_path + "model_description.json", 'r') as json_file:
             model_description = json.load(json_file)
 
+        if tokenizers_training_texts is not None:
+            tokenizer_training_summaries = [ex[0] for ex in tokenizers_training_texts]
+            tokenizer_training_codes = [ex[1] for ex in tokenizers_training_texts]
+        else:
+            tokenizer_training_summaries = None
+            tokenizer_training_codes = None
+
         self.language_tokenizer = Tokenizer(model_description['language_tokenizer_type'],
                                             model_path + model_description['language_tokenizer_path'],
-                                            training_texts=tokenizers_training_texts[0],
+                                            training_texts=tokenizer_training_summaries,
                                             target_vocab_size=model_description['language_target_vocab_size'],
                                             vocab_min_count=model_description['language_vocab_min_count'])
         self.code_tokenizer = Tokenizer(model_description['code_tokenizer_type'],
                                         model_path + model_description['code_tokenizer_path'],
-                                        training_texts=tokenizers_training_texts[1],
+                                        training_texts=tokenizer_training_codes,
                                         target_vocab_size=model_description['code_target_vocab_size'],
                                         vocab_min_count=model_description['code_vocab_min_count'])
 
@@ -445,16 +452,14 @@ class BimodalVariationalAutoEncoder(tf.Module):
         val_loss /= tf.cast(batches_per_val, tf.float32)
         return val_loss
 
-    def train(self, train_summaries, train_codes, val_summaries, val_codes, num_epochs=100, batch_size=64, patience=6):
-
-        assert len(train_summaries) == len(train_codes)
+    def train(self, train, val, num_epochs=100, batch_size=128, patience=6):
 
         print("Tokenizing datasets, and removing examples that are too long...")
-        train_summaries = self.language_tokenizer.tokenize_texts(train_summaries)
-        train_codes = self.code_tokenizer.tokenize_texts(train_codes)
+        train_summaries = self.language_tokenizer.tokenize_texts([ex[0] for ex in train])
+        train_codes = self.code_tokenizer.tokenize_texts(ex[1] for ex in train)
         train_summaries, train_codes = tdu.sequences_to_tensors(train_summaries, train_codes, self.l_dim, self.c_dim)
-        val_summaries = self.language_tokenizer.tokenize_texts(val_summaries)
-        val_codes = self.code_tokenizer.tokenize_texts(val_codes)
+        val_summaries = self.language_tokenizer.tokenize_texts([ex[0] for ex in val])
+        val_codes = self.code_tokenizer.tokenize_texts([ex[1] for ex in val])
         val_summaries, val_codes = tdu.sequences_to_tensors(val_summaries, val_codes, self.l_dim, self.c_dim)
 
         dataset = tf.data.Dataset.from_tensor_slices((train_summaries, train_codes))
@@ -463,8 +468,8 @@ class BimodalVariationalAutoEncoder(tf.Module):
         batches_per_epoch = int(len_train / batch_size)
         print("Training on %s samples, validating on %s samples" % (len_train, val_summaries.shape[0]))
 
-        best_val_loss = self.evaluate(val_summaries, val_codes, batch_size=batch_size)
-        print("Initial validation loss: %s" % best_val_loss.numpy())
+        best_val_loss = self.evaluate(val_summaries, val_codes, batch_size=batch_size).numpy()
+        print("Initial validation loss: %s" % best_val_loss)
         num_epochs_with_no_improvement = 0
 
         for epoch in range(num_epochs):
@@ -474,20 +479,27 @@ class BimodalVariationalAutoEncoder(tf.Module):
             batches_iter = iter(shuffled_batches)
 
             batches = tqdm.trange(batches_per_epoch)
-            for batch in batches:
+            train_loss = 0.0
+            for _ in batches:
                 summaries_batch, codes_batch = next(batches_iter)
                 loss = self.training_step(summaries_batch,
                                           codes_batch,
-                                          self.optimizer)
-                batches.set_description("Epoch %s of %s, loss=%.4f" % (epoch + 1, num_epochs, loss.numpy()))
+                                          self.optimizer).numpy()
+                batches.set_description("Epoch %s of %s, loss=%.4f" % (epoch + 1, num_epochs, loss))
+                train_loss += loss
 
-            val_loss = self.evaluate(val_summaries, val_codes, batch_size=batch_size)
-            print("Epoch %s of %s, val_loss=%s" % (epoch + 1, num_epochs, val_loss.numpy()))
+            train_loss /= batches_per_epoch
+            val_loss = self.evaluate(val_summaries, val_codes, batch_size=batch_size).numpy()
+
+            print("Epoch %s of %s completed. train_loss=%.4f, val_loss=%.4f" %
+                  (epoch + 1, num_epochs, train_loss, val_loss))
+
             if val_loss < best_val_loss:
-                print("Val loss improved from %s, saving checkpoint" % best_val_loss.numpy())
+                print("Val loss improved from %s, saving checkpoint" % best_val_loss)
                 self.checkpoint_manager.save()
                 best_val_loss = val_loss
                 num_epochs_with_no_improvement = 0
+
             else:
                 print("Val loss did not improve")
                 num_epochs_with_no_improvement += 1
