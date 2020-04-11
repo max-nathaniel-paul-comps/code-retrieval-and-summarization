@@ -91,16 +91,28 @@ def load_iyer_file(filename: str) -> Tuple[List[str], List[str]]:
     return summaries, codes
 
 
-def load_iyer_dataset(filename: str) -> List[Tuple[str, str]]:
+def load_iyer_dataset(filename: str, alternate_summaries_filename: str = None) -> List[Tuple[str, str]]:
     file_contents = open(filename).readlines()
+    if alternate_summaries_filename:
+        alternate_file_contents = open(alternate_summaries_filename).readlines()
     dataset = []
-    for line in file_contents:
-        items = line.split('\t')
-        if len(items) == 5:
-            split_line = line.split('\t')
+    for line_num in range(len(file_contents)):
+        line = file_contents[line_num]
+        split_line = line.split('\t')
+        if len(split_line) == 5:
             summary = preprocess_language(split_line[2])
             code = preprocess_source_code(split_line[3])
-            dataset.append((summary, code))
+            if alternate_summaries_filename is None:
+                dataset.append((summary, code))
+            else:
+                alternate_summaries = []
+                for alternate_idx in range(line_num + len(file_contents), len(alternate_file_contents),
+                                           len(file_contents)):
+                    split_alt_line = alternate_file_contents[alternate_idx].split('\t')
+                    if len(split_alt_line) == 2:
+                        alternate_summary = preprocess_language(split_alt_line[1])
+                        alternate_summaries.append(alternate_summary)
+                dataset.append((summary, code, alternate_summaries))
     return dataset
 
 
