@@ -452,7 +452,7 @@ class BimodalVariationalAutoEncoder(tf.Module):
         val_loss /= tf.cast(batches_per_val, tf.float32)
         return val_loss
 
-    def train(self, train, val, num_epochs=100, batch_size=128, patience=6):
+    def train(self, train, val, num_epochs=100, batch_size=64, patience=6):
 
         print("Tokenizing datasets, and removing examples that are too long...")
         train_summaries = self.language_tokenizer.tokenize_texts([ex[0] for ex in train])
