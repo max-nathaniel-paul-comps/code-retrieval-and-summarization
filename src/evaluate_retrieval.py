@@ -12,7 +12,7 @@ def reciprocal_rank(sorted_indices, golden_idx):
             return 1.0 / (i + 1.0)
 
 
-def random_samples_method(dataset, bvae_model, baseline_model, random_sample_size=50, num_samples=1000):
+def random_samples_method(dataset, bvae_model, baseline_model, random_sample_size=50, num_samples=10000):
     """
     The method used by Chen and Zhou.
     """

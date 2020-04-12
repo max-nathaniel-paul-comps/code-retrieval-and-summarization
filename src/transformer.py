@@ -519,16 +519,19 @@ class Transformer(tf.keras.Model):
         plt.tight_layout()
         plt.show()
 
-    def translate(self, sentence, plot=''):
+    def translate(self, sentence, plot='', print_output=True):
         result, attention_weights = self.evaluate_on_sentence(sentence, self.max_output_len)
 
         predicted_sentence = self.output_tokenizer.de_tokenize_texts([result])[0]
 
-        print('Input: {}'.format(sentence))
-        print('Predicted translation: {}'.format(predicted_sentence))
+        if print_output:
+            print('Input: {}'.format(sentence))
+            print('Predicted translation: {}'.format(predicted_sentence))
 
         if plot:
             self.plot_attention_weights(attention_weights, sentence, result, plot)
+
+        return predicted_sentence
 
     def interactive_demo(self):
         while True:
@@ -584,54 +587,71 @@ def create_masks(inp, tar):
     return enc_padding_mask, combined_mask, dec_padding_mask
 
 
-def main():
+class CodeSummarizationTransformer(object):
+    def __init__(self, model_path, train=False, train_set=None, val_set=None):
+        if train_set is not None:
+            train_summaries = [ex[0] for ex in train_set]
+            train_codes = [ex[1] for ex in train_set]
+        else:
+            train_summaries = None
+            train_codes = None
+        if val_set is not None:
+            val_summaries = [ex[0] for ex in val_set]
+            val_codes = [ex[1] for ex in val_set]
+        else:
+            val_summaries = None
+            val_codes = None
 
+        with open(model_path + "transformer_description.json") as transformer_desc_json:
+            transformer_description = json.load(transformer_desc_json)
+
+        language_tokenizer = Tokenizer(transformer_description['language_tokenizer_type'],
+                                       model_path + transformer_description['language_tokenizer_path'],
+                                       training_texts=train_summaries,
+                                       target_vocab_size=transformer_description['language_target_vocab_size'])
+        code_tokenizer = Tokenizer(transformer_description['code_tokenizer_type'],
+                                   model_path + transformer_description['code_tokenizer_path'],
+                                   training_texts=train_codes,
+                                   target_vocab_size=transformer_description['code_target_vocab_size'])
+
+        num_layers = transformer_description['num_layers']
+        d_model = transformer_description['d_model']
+        dff = transformer_description['dff']
+        num_heads = transformer_description['num_heads']
+
+        input_vocab_size = code_tokenizer.vocab_size
+        target_vocab_size = language_tokenizer.vocab_size
+        dropout_rate = transformer_description['dropout_rate']
+
+        universal = transformer_description['universal']
+
+        self.transformer = Transformer(num_layers, d_model, num_heads, dff,
+                                       input_vocab_size, target_vocab_size,
+                                       input_vocab_size, target_vocab_size,
+                                       model_path, code_tokenizer, language_tokenizer,
+                                       max_input_len=transformer_description['c_dim'],
+                                       max_output_len=transformer_description['l_dim'],
+                                       rate=dropout_rate, universal=universal)
+        if train:
+            self.transformer.train(train_codes, train_summaries, val_codes, val_summaries)
+
+
+def main():
     assert len(sys.argv) == 3
     train = (sys.argv[1] == 'train')
     model_path = sys.argv[2]
 
     print("Loading dataset...")
-    train_summaries, train_codes = tdu.load_iyer_file("../data/iyer_csharp/train.txt")
-    val_summaries, val_codes = tdu.load_iyer_file("../data/iyer_csharp/valid.txt")
-
-    print("Loading tokenizers...")
-    with open(model_path + "transformer_description.json") as transformer_desc_json:
-        transformer_description = json.load(transformer_desc_json)
-
-    language_tokenizer = Tokenizer(transformer_description['language_tokenizer_type'],
-                                   model_path + transformer_description['language_tokenizer_path'],
-                                   training_texts=train_summaries,
-                                   target_vocab_size=transformer_description['language_target_vocab_size'])
-    code_tokenizer = Tokenizer(transformer_description['code_tokenizer_type'],
-                               model_path + transformer_description['code_tokenizer_path'],
-                               training_texts=train_codes,
-                               target_vocab_size=transformer_description['code_target_vocab_size'])
+    iyer_train = tdu.load_iyer_dataset("../data/iyer_csharp/train.txt")
+    iyer_val = tdu.load_iyer_dataset("../data/iyer_csharp/valid.txt")
+    our_train = tdu.load_csv_dataset("../data/our_csharp/train.csv")
+    our_val = tdu.load_csv_dataset("../data/our_csharp/val.csv")
+    all_train = list(set().union(iyer_train, our_train))
+    all_val = list(set().union(iyer_val, our_val))
 
     print("Loading transformer...")
-
-    num_layers = transformer_description['num_layers']
-    d_model = transformer_description['d_model']
-    dff = transformer_description['dff']
-    num_heads = transformer_description['num_heads']
-
-    input_vocab_size = code_tokenizer.vocab_size
-    target_vocab_size = language_tokenizer.vocab_size
-    dropout_rate = transformer_description['dropout_rate']
-
-    universal = transformer_description['universal']
-
-    transformer = Transformer(num_layers, d_model, num_heads, dff,
-                              input_vocab_size, target_vocab_size,
-                              input_vocab_size, target_vocab_size,
-                              model_path, code_tokenizer, language_tokenizer,
-                              max_input_len=transformer_description['c_dim'],
-                              max_output_len=transformer_description['l_dim'],
-                              rate=dropout_rate, universal=universal)
-
-    if train:
-        transformer.train(train_codes, train_summaries, val_codes, val_summaries, num_epochs=15)
-    else:
-        transformer.interactive_demo()
+    transformer = CodeSummarizationTransformer(model_path, train=train, train_set=all_train, val_set=all_val)
+    transformer.transformer.interactive_demo()
 
 
 if __name__ == "__main__":
