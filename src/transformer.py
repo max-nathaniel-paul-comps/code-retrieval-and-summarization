@@ -393,7 +393,7 @@ class Transformer(tf.keras.Model):
         val_loss /= val_batches_per_epoch
         return val_loss
 
-    def train(self, train_codes, train_summaries, val_codes, val_summaries, batch_size=64, num_epochs=15):
+    def train(self, train_codes, train_summaries, val_codes, val_summaries, batch_size=64, num_epochs=100):
 
         train_summaries = self.output_tokenizer.tokenize_texts(train_summaries)
         train_codes = self.input_tokenizer.tokenize_texts(train_codes)
@@ -409,8 +409,9 @@ class Transformer(tf.keras.Model):
 
         batches_per_epoch = int(train_codes.shape[0] / batch_size)
 
-        last_val_loss = self.val_loss(val_codes, val_summaries, batch_size=batch_size)
-        print('Initial Validation loss: {:.4f}'.format(last_val_loss))
+        best_val_loss = self.val_loss(val_codes, val_summaries, batch_size=batch_size)
+        print('Initial Validation loss: {:.4f}'.format(best_val_loss))
+        num_epochs_with_no_improvement = 0
 
         for epoch in range(num_epochs):
             start = time.time()
@@ -434,11 +435,17 @@ class Transformer(tf.keras.Model):
             val_loss = self.val_loss(val_codes, val_summaries, batch_size=batch_size)
             print('Validation loss: {:.4f}'.format(val_loss))
 
-            if val_loss < last_val_loss:
+            if val_loss < best_val_loss:
                 ckpt_save_path = self.ckpt_manager.save()
-                last_val_loss = self.val_loss(val_codes, val_summaries, batch_size=batch_size)
+                best_val_loss = self.val_loss(val_codes, val_summaries, batch_size=batch_size)
                 print('Saving checkpoint for epoch {} at {}'.format(epoch + 1,
                                                                     ckpt_save_path))
+            else:
+                num_epochs_with_no_improvement += 1
+                print("Val loss did not improve")
+                if num_epochs_with_no_improvement > 8:
+                    print("Early stopping")
+                    break
 
             print('Epoch {} Loss {:.4f} Accuracy {:.4f}'.format(epoch + 1,
                                                                 self.train_loss.result(),
@@ -651,7 +658,8 @@ def main():
 
     print("Loading transformer...")
     transformer = CodeSummarizationTransformer(model_path, train=train, train_set=all_train, val_set=all_val)
-    transformer.transformer.interactive_demo()
+    if not train:
+        transformer.transformer.interactive_demo()
 
 
 if __name__ == "__main__":
