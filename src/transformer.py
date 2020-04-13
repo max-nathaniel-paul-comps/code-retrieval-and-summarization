@@ -454,6 +454,19 @@ class Transformer(tf.keras.Model):
 
             print('Time taken for 1 epoch: {} secs\n'.format(time.time() - start))
 
+    def _single_bsd_step(self, predicted_so_far, state):
+        enc_input = state["enc_input"]
+        enc_output = state["enc_output"]
+        tar = tf.expand_dims(predicted_so_far, 0)
+        enc_padding_mask, combined_mask, dec_padding_mask = create_masks(
+            enc_input, tar)
+        # dec_output.shape == (1, tar_seq_len, d_model)
+        dec_output, attention_weights = self.decoder(
+            tar, enc_output, False, combined_mask, dec_padding_mask)
+        final_output = self.final_layer(dec_output)  # (1, tar_seq_len, target_vocab_size)
+        state["attention_weights"] = attention_weights
+        return tf.nn.softmax(final_output[0][-1]), state
+
     def evaluate_on_sentence(self, inp_sentence, max_length):
 
         encoder_input = self.input_tokenizer.tokenize_texts([inp_sentence])
@@ -462,37 +475,18 @@ class Transformer(tf.keras.Model):
         encoder_input = tf.keras.preprocessing.sequence.pad_sequences(encoder_input, maxlen=self.max_input_len,
                                                                       dtype='int64', padding='post', value=0)
 
-        # as the target is english, the first word to the transformer should be the
-        # english start token.
-        decoder_input = [self.output_tokenizer.start_token]
-        output = tf.expand_dims(decoder_input, 0)
+        enc_padding_mask = create_padding_mask(encoder_input)
+        enc_output = self.encoder(encoder_input, False, enc_padding_mask)  # (batch_size, inp_seq_len, d_model)
 
-        for i in range(max_length):
-            enc_padding_mask, combined_mask, dec_padding_mask = create_masks(
-                encoder_input, output)
+        dec_state = {
+            "enc_input": encoder_input,
+            "enc_output": enc_output
+        }
 
-            # predictions.shape == (batch_size, seq_len, vocab_size)
-            predictions, attention_weights = self.call(encoder_input,
-                                                         output,
-                                                         False,
-                                                         enc_padding_mask,
-                                                         combined_mask,
-                                                         dec_padding_mask)
+        best_beam = tdu.beam_search_decode(dec_state, self._single_bsd_step, self.output_tokenizer.start_token,
+                                           self.output_tokenizer.end_token, beam_width=1, max_len=max_length)
 
-            # select the last word from the seq_len dimension
-            predictions = predictions[:, -1:, :]  # (batch_size, 1, vocab_size)
-
-            predicted_id = tf.cast(tf.argmax(predictions, axis=-1), tf.int32)
-
-            # return the result if the predicted_id is equal to the end token
-            if predicted_id == self.output_tokenizer.end_token:
-                return tf.squeeze(output, axis=0), attention_weights
-
-            # concatentate the predicted_id to the output which is given to the decoder
-            # as its input.
-            output = tf.concat([output, predicted_id], axis=-1)
-
-        return tf.squeeze(output, axis=0), attention_weights
+        return best_beam[0], best_beam[2]["attention_weights"]
 
     def plot_attention_weights(self, attention, sentence, result, layer):
         fig = plt.figure(figsize=(16, 8))

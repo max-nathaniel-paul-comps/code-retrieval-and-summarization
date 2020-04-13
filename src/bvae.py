@@ -193,62 +193,20 @@ class RecurrentDecoder(tf.keras.Model):
         predicts = self.dense_2(gru_out)
         return predicts
 
-    def beam_search_decode(self, latent_samples, beam_width=10, max_len=50):
-        predicted_texts = []
-        for i in range(latent_samples.shape[0]):
-            dense_out = self.dense(tf.expand_dims(latent_samples[i], 0))
-            predicted_embedded = self.embedding(tf.expand_dims(tf.expand_dims(self.start_token, 0), 0))
-            output, initial_state = self.gru.cell(predicted_embedded, tf.expand_dims(dense_out, 0))
-            final = tf.nn.softmax(self.dense_2(output)[0][0], axis=-1)
-            predictions = tf.argsort(final, axis=-1, direction='DESCENDING').numpy()[0:beam_width]
-            beams = []
-            for k in range(beam_width):
-                formed_candidate = ([self.start_token, predictions[k]],
-                                    -tf.math.log(final[predictions[k]]),
-                                    initial_state)
-                beams.append(formed_candidate)
-            for j in range(max_len - 1):
-                candidates = []
-                for k in range(beam_width):
-                    if beams[k][0][-1] == self.end_token:
-                        if len(candidates) < beam_width:
-                            candidates.append(beams[k])
-                        else:
-                            for m in range(len(candidates)):
-                                if candidates[m][1] > beams[k][1]:
-                                    candidates[m] = beams[k]
-                                    break
-                    else:
-                        predicted_embedded = self.embedding(tf.expand_dims(tf.expand_dims(beams[k][0][-1], 0), 0))
-                        output, new_state = self.gru.cell(predicted_embedded, beams[k][2])
-                        final = tf.nn.softmax(self.dense_2(output)[0][0], axis=-1)
-                        predictions = tf.argsort(final, axis=-1, direction='DESCENDING').numpy()[0:beam_width]
-                        for prediction in predictions:
-                            formed_candidate = (beams[k][0] + [prediction],
-                                                beams[k][1] + -tf.math.log(final[prediction]),
-                                                new_state)
-                            if len(candidates) < beam_width:
-                                candidates.append(formed_candidate)
-                            else:
-                                for m in range(len(candidates)):
-                                    if candidates[m][1] > formed_candidate[1]:
-                                        candidates[m] = formed_candidate
-                                        break
-                beams = candidates
-                if all(beams[k][0][-1] == self.end_token for k in range(beam_width)):
-                    break
-            lowest_perplexity_beam = beams[0]
-            for k in range(1, beam_width):
-                if beams[k][1] < lowest_perplexity_beam[1]:
-                    lowest_perplexity_beam = beams[k]
-            predicted_texts.append(lowest_perplexity_beam[0])
-        return predicted_texts
+    def _single_bsd_step(self, predicted_so_far, state):
+        predicted_embedded = self.embedding(tf.expand_dims(tf.expand_dims(predicted_so_far[-1], 0), 0))
+        output, new_state = self.gru.cell(predicted_embedded, tf.expand_dims(tf.expand_dims(state, 0), 0))
+        final = tf.nn.softmax(self.dense_2(output)[0][0], axis=-1)
+        return final, new_state[0][0][0]
 
     def call(self, latent_samples, true_outputs=None, training=False, **kwargs):
         if true_outputs is not None:
             return self.teacher_forcing_decode(latent_samples, true_outputs, training=training)
         else:
-            return self.beam_search_decode(latent_samples)
+            dense_outs = self.dense(latent_samples)
+            return [tdu.beam_search_decode(dense_outs[i], self._single_bsd_step,
+                                           self.start_token, self.end_token)[0]
+                    for i in range(dense_outs.shape[0])]
 
 
 class TransformerDecoder(tf.keras.Model):
