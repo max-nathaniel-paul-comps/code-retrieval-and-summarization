@@ -436,6 +436,7 @@ class Transformer(tf.keras.Model):
             print('Validation loss: {:.4f}'.format(val_loss))
 
             if val_loss < best_val_loss:
+                num_epochs_with_no_improvement = 0
                 ckpt_save_path = self.ckpt_manager.save()
                 best_val_loss = self.val_loss(val_codes, val_summaries, batch_size=batch_size)
                 print('Saving checkpoint for epoch {} at {}'.format(epoch + 1,
