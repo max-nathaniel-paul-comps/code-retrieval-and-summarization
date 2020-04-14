@@ -472,7 +472,8 @@ class BimodalVariationalAutoEncoder(tf.Module):
         tokenized = self.language_tokenizer.tokenize_texts(summaries)
         if len(tokenized[0]) > self.l_dim:
             print("Warning: Input summary is oversize")
-        padded = tf.keras.preprocessing.sequence.pad_sequences(tokenized, maxlen=self.l_dim, padding='post', value=0)
+        padded = tf.keras.preprocessing.sequence.pad_sequences(tokenized, maxlen=self.l_dim, padding='post', value=0,
+                                                               truncating='post')
         latent = self.language_encoder(padded, training=False)
         return latent
 
@@ -480,7 +481,8 @@ class BimodalVariationalAutoEncoder(tf.Module):
         tokenized = self.code_tokenizer.tokenize_texts(codes)
         if len(tokenized[0]) > self.c_dim:
             print("Warning: Input code is oversize")
-        padded = tf.keras.preprocessing.sequence.pad_sequences(tokenized, maxlen=self.l_dim, padding='post', value=0)
+        padded = tf.keras.preprocessing.sequence.pad_sequences(tokenized, maxlen=self.c_dim, padding='post', value=0,
+                                                               truncating='post')
         latent = self.source_code_encoder(padded, training=False)
         return latent
 

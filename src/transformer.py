@@ -273,7 +273,7 @@ class Decoder(tf.keras.layers.Layer):
     def call(self, x, enc_output, training,
              look_ahead_mask, padding_mask):
         seq_len = tf.shape(x)[1]
-        attention_weights = {}
+        attention_weights = []
 
         x = self.embedding(x)  # (batch_size, target_seq_len, d_model)
         x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
@@ -292,8 +292,7 @@ class Decoder(tf.keras.layers.Layer):
                 x, block1, block2 = self.dec_layers[i](x, enc_output, training,
                                                        look_ahead_mask, padding_mask)
 
-            attention_weights['decoder_layer{}_block1'.format(i + 1)] = block1
-            attention_weights['decoder_layer{}_block2'.format(i + 1)] = block2
+            attention_weights.append((block1, block2))
 
         # x.shape == (batch_size, target_seq_len, d_model)
         return x, attention_weights
@@ -473,7 +472,8 @@ class Transformer(tf.keras.Model):
         if len(encoder_input[0]) > self.max_input_len:
             print("Warning: Input sentence exceeds maximum length")
         encoder_input = tf.keras.preprocessing.sequence.pad_sequences(encoder_input, maxlen=self.max_input_len,
-                                                                      dtype='int64', padding='post', value=0)
+                                                                      dtype='int64', padding='post', value=0,
+                                                                      truncating='post')
 
         enc_padding_mask = create_padding_mask(encoder_input)
         enc_output = self.encoder(encoder_input, False, enc_padding_mask)  # (batch_size, inp_seq_len, d_model)
@@ -488,39 +488,74 @@ class Transformer(tf.keras.Model):
 
         return best_beam[0], best_beam[2]["attention_weights"]
 
-    def plot_attention_weights(self, attention, sentence, result, layer):
+    def plot_attention_weights(self, attention, sentence, result):
 
         sentence = self.input_tokenizer.tokenize_texts([sentence])[0]
-        result = result[1:]
+        sentence = tf.keras.preprocessing.sequence.pad_sequences([sentence], maxlen=self.max_input_len,
+                                                                 dtype='int64', padding='post', value=0,
+                                                                 truncating='post')[0]
+        inp_mask = tf.logical_not(tf.equal(sentence, 0))
+        sentence_ragged = tf.ragged.boolean_mask(sentence, inp_mask)
+        if not tf.is_tensor(sentence_ragged):
+            sentence = sentence_ragged.to_tensor()
+        else:
+            sentence = sentence_ragged
+        result_no_sos = result[1:]
+        result_no_eos = result[:-1]
 
-        attention = tf.squeeze(attention[layer], axis=0)
-        fig = plt.figure(figsize=(self.max_input_len, self.max_output_len))
-        for head in range(attention.shape[0]):
-            ax = fig.add_subplot(2, 4, head + 1)
+        encoder_decoder_attention = tf.squeeze(tf.convert_to_tensor([att_layer[1] for att_layer in attention]), axis=1)
 
-            # plot the attention weights
-            ax.matshow(attention[head], cmap='viridis')
+        total_attention = tf.reduce_sum(tf.reduce_sum(encoder_decoder_attention, axis=0), axis=0)
+        zeros_mask = tf.logical_not(tf.equal(total_attention, 0))
+        total_attention_ragged = tf.ragged.boolean_mask(total_attention, zeros_mask)
+        total_attention_non_ragged = total_attention_ragged.to_tensor()
+        total_attention_softmax = tf.nn.softmax(total_attention_non_ragged, axis=-1)
 
-            fontdict = {'fontsize': 10}
+        fig = plt.figure(figsize=(24, 8), dpi=192)
+        ax = fig.add_subplot(1, 2, 1)
 
-            ax.set_xticks(range(len(sentence)))
-            ax.set_yticks(range(len(result)))
+        # plot the attention weights
+        ax.matshow(total_attention_softmax, cmap='viridis')
 
-            ax.set_xlim(left=0.5, right=len(sentence) - 1.5)
-            ax.set_ylim(bottom=len(result) - 1.5)
+        fontdict = {'fontsize': 8}
 
-            ax.set_xticklabels(
-                [self.input_tokenizer.de_tokenize_texts([[i]], hide_eos=False)[0] for i in sentence],
-                fontdict=fontdict, rotation=90)
+        ax.set_xticks(range(len(sentence)))
+        ax.set_yticks(range(len(result_no_sos)))
 
-            ax.set_yticklabels([self.output_tokenizer.de_tokenize_texts([[i]], hide_eos=False)[0] for i in result],
-                               fontdict=fontdict)
+        ax.set_xticklabels(
+            [self.input_tokenizer.de_tokenize_texts([[i]], hide_eos=False)[0] for i in sentence],
+            fontdict=fontdict, rotation=90)
 
-            ax.set_xlabel('Head {}'.format(head + 1))
+        ax.set_yticklabels([self.output_tokenizer.de_tokenize_texts([[i]], hide_eos=False)[0] for i in result_no_sos],
+                           fontdict=fontdict)
+
+        ax.set_xlabel('Encoder-Decoder Attention')
+        
+        decoder_self_attention = tf.squeeze(tf.convert_to_tensor([att_layer[0] for att_layer in attention]), axis=1)
+        total_attention_2 = tf.reduce_sum(tf.reduce_sum(decoder_self_attention, axis=0), axis=0)
+        mask_2 = tf.logical_not(tf.equal(total_attention_2, 0))
+        total_attention_ragged_2 = tf.ragged.boolean_mask(total_attention_2, mask_2)
+        total_attention_non_ragged_2 = total_attention_ragged_2.to_tensor()
+        total_attention_softmax_2 = tf.nn.softmax(total_attention_non_ragged_2, axis=-1)
+
+        ax2 = fig.add_subplot(1, 2, 2)
+        ax2.matshow(total_attention_softmax_2, cmap='viridis')
+        ax2.set_xticks(range(len(result_no_eos)))
+        ax2.set_yticks(range(len(result_no_sos)))
+
+        ax2.set_xticklabels(
+            [self.output_tokenizer.de_tokenize_texts([[i]], hide_eos=False)[0] for i in result_no_eos],
+            fontdict=fontdict, rotation=90
+        )
+        ax2.set_yticklabels(
+            [self.output_tokenizer.de_tokenize_texts([[i]], hide_eos=False)[0] for i in result_no_sos],
+            fontdict=fontdict
+        )
+        ax2.set_xlabel('Decoder Self-Attention')
 
         plt.show()
 
-    def translate(self, sentence, plot='', print_output=True):
+    def translate(self, sentence, plot=False, print_output=True):
         result, attention_weights = self.evaluate_on_sentence(sentence, self.max_output_len)
 
         predicted_sentence = self.output_tokenizer.de_tokenize_texts([result])[0]
@@ -530,7 +565,7 @@ class Transformer(tf.keras.Model):
             print('Predicted translation: {}'.format(predicted_sentence))
 
         if plot:
-            self.plot_attention_weights(attention_weights, sentence, result, plot)
+            self.plot_attention_weights(attention_weights, sentence, result)
 
         return predicted_sentence
 
@@ -541,7 +576,7 @@ class Transformer(tf.keras.Model):
             if code == "exit":
                 break
             code = tdu.preprocess_source_code(code)
-            self.translate(code, plot='decoder_layer4_block2')
+            self.translate(code, plot=True)
 
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
