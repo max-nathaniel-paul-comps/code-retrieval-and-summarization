@@ -116,11 +116,11 @@ class Tokenizer(object):
         tokenized = self._tokenizer_fn(texts)
         return tokenized
 
-    def de_tokenize_texts(self, seqs):
+    def de_tokenize_texts(self, seqs, hide_eos=True):
         for i in range(len(seqs)):
-            if seqs[i][0] == self.start_token:
+            if hide_eos and seqs[i][0] == self.start_token:
                 seqs[i] = seqs[i][1:]
-            if seqs[i][-1] == self.end_token:
+            if hide_eos and seqs[i][-1] == self.end_token:
                 seqs[i] = seqs[i][:-1]
         texts = self._de_tokenizer_fn(seqs)
         return texts

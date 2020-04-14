@@ -489,36 +489,35 @@ class Transformer(tf.keras.Model):
         return best_beam[0], best_beam[2]["attention_weights"]
 
     def plot_attention_weights(self, attention, sentence, result, layer):
-        fig = plt.figure(figsize=(16, 8))
 
         sentence = self.input_tokenizer.tokenize_texts([sentence])[0]
+        result = result[1:]
 
         attention = tf.squeeze(attention[layer], axis=0)
-
+        fig = plt.figure(figsize=(self.max_input_len, self.max_output_len))
         for head in range(attention.shape[0]):
             ax = fig.add_subplot(2, 4, head + 1)
 
             # plot the attention weights
-            ax.matshow(attention[head][:-1, :], cmap='viridis')
+            ax.matshow(attention[head], cmap='viridis')
 
             fontdict = {'fontsize': 10}
 
-            ax.set_xticks(range(len(sentence) + 2))
+            ax.set_xticks(range(len(sentence)))
             ax.set_yticks(range(len(result)))
 
-            ax.set_ylim(len(result) - 1.5, -0.5)
+            ax.set_xlim(left=0.5, right=len(sentence) - 1.5)
+            ax.set_ylim(bottom=len(result) - 1.5)
 
             ax.set_xticklabels(
-                [self.input_tokenizer.de_tokenize_texts([[i]])[0] for i in sentence],
+                [self.input_tokenizer.de_tokenize_texts([[i]], hide_eos=False)[0] for i in sentence],
                 fontdict=fontdict, rotation=90)
 
-            ax.set_yticklabels([self.output_tokenizer.de_tokenize_texts([[i]]) for i in result
-                                if i < self.output_tokenizer.vocab_size],
+            ax.set_yticklabels([self.output_tokenizer.de_tokenize_texts([[i]], hide_eos=False)[0] for i in result],
                                fontdict=fontdict)
 
             ax.set_xlabel('Head {}'.format(head + 1))
 
-        plt.tight_layout()
         plt.show()
 
     def translate(self, sentence, plot='', print_output=True):
@@ -542,7 +541,7 @@ class Transformer(tf.keras.Model):
             if code == "exit":
                 break
             code = tdu.preprocess_source_code(code)
-            self.translate(code)
+            self.translate(code, plot='decoder_layer4_block2')
 
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
