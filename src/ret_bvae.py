@@ -31,16 +31,23 @@ class RetBVAE(object):
 
 
 def main():
-    assert len(sys.argv) == 2, "Usage: python ret_bvae.py path/to/model/dir/"
-    model_path = sys.argv[1]
+    assert len(sys.argv) == 3, "Usage: python ret_bvae.py prog_lang path/to/model/dir/"
+    prog_lang = sys.argv[1]
+    model_path = sys.argv[2]
 
     print("Loading model...")
     model = BimodalVariationalAutoEncoder(model_path)
 
     print("Preparing interactive retrieval demo...")
-    dev_summaries, dev_codes = load_iyer_file("../data/iyer_csharp/dev.txt")
-    ret_bvae = RetBVAE(model, dev_codes)
+    if prog_lang == "csharp":
+        _, codes = load_iyer_file("../data/iyer_csharp/dev.txt")
+    elif prog_lang == "python":
+        _, _, test = load_edinburgh_dataset("../data/edinburgh_python")
+        codes = [ex[1] for ex in test]
+    else:
+        raise Exception("Invalid programming language: %s" % prog_lang)
 
+    ret_bvae = RetBVAE(model, codes)
     ret_bvae.interactive_demo()
 
 

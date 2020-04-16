@@ -73,10 +73,12 @@ def full_method(dataset, bvae_model, baseline_model):
 
 
 def main():
-    assert len(sys.argv) == 4, "Usage: python evaluate_retrieval.py method baseline_name path/to/bvae/model/dir/"
+    assert len(sys.argv) == 5, "Usage: python evaluate_retrieval.py method baseline_name prog_lang " \
+                               "path/to/bvae/model/dir/"
     method = sys.argv[1]
     baseline = sys.argv[2]
-    bvae_model_path = sys.argv[3]
+    prog_lang = sys.argv[3]
+    bvae_model_path = sys.argv[4]
 
     if baseline == 'ret_ir':
         def baseline_model(summary, candidate_summaries, candidate_codes, sample_size):
@@ -90,8 +92,14 @@ def main():
     else:
         raise Exception("Invalid baseline specified: %s" % baseline)
 
-    dataset = load_iyer_dataset("../data/iyer_csharp/dev.txt",
-                                alternate_summaries_filename="../data/iyer_csharp/dev_alternate_summaries.txt")
+    if prog_lang == "csharp":
+        dataset = load_iyer_dataset("../data/iyer_csharp/dev.txt",
+                                    alternate_summaries_filename="../data/iyer_csharp/dev_alternate_summaries.txt")
+    elif prog_lang == "python":
+        _, _, test = load_edinburgh_dataset("../data/edinburgh_python")
+        dataset = [("I'M IN THE ALT", ex[1], [ex[0]]) for ex in test]
+    else:
+        raise Exception("Invalid prog_lang specified: %s" % prog_lang)
 
     bvae_model = BimodalVariationalAutoEncoder(bvae_model_path)
 

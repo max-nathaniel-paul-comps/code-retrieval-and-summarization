@@ -17,6 +17,8 @@ def preprocess_language(language: str) -> str:
     language = language.replace('\\n', ' ').replace('\n', ' ')
     language = html.unescape(language)
     language = remove_excess_whitespace(language)
+    if len(language) < 2:
+        return language
     if language[-1] == '?':
         language = language[:-1]
     for opener in ['how do i ', 'how do you ', 'how can i ', 'how to ', 'best way to ', 'can i ',
@@ -31,10 +33,6 @@ def preprocess_language(language: str) -> str:
             language = language[:-len(closer)]
     language = language.lower()
     return language
-
-
-def batch_proc(lis, fun):
-    return [fun(li) for li in lis]
 
 
 def preprocess_source_code(source_code: str) -> str:
@@ -76,14 +74,40 @@ def sequences_to_tensors(summaries, codes, max_summary_len, max_source_code_len,
     return summaries_tensor, codes_tensor
 
 
+def preprocess_python(python: str) -> str:
+    if python.endswith('\n'):
+        python = python[:-len('\n')]
+    if python.startswith('\''):
+        python = python[len('\''):]
+    if python.endswith('\''):
+        python = python[:-len('\'')]
+    python = python.strip()
+    return python
+
+
 def load_edinburgh_dataset(path: str):
-    train_summaries = batch_proc(open(path + "/data_ps.descriptions.train.txt", encoding='utf-8', errors='ignore').readlines(), preprocess_language)
-    train_codes = batch_proc(open(path + "/data_ps.bodies.train.txt", encoding='utf-8', errors='ignore').readlines(), preprocess_language)
-    val_summaries = batch_proc(open(path + "/data_ps.descriptions.valid.txt", encoding='utf-8', errors='ignore').readlines(), preprocess_language)
-    val_codes = batch_proc(open(path + "/data_ps.bodies.valid.txt", encoding='utf-8', errors='ignore').readlines(), preprocess_language)
-    test_summaries = batch_proc(open(path + "/data_ps.descriptions.test.txt", encoding='utf-8', errors='ignore').readlines(), preprocess_language)
-    test_codes = batch_proc(open(path + "/data_ps.bodies.test.txt", encoding='utf-8', errors='ignore').readlines(), preprocess_language)
-    return train_summaries, train_codes, val_summaries, val_codes, test_summaries, test_codes
+    train_summaries = list(map(preprocess_python, open(path + "/data_ps.descriptions.train.txt", encoding='utf-8',
+                                                       errors='ignore').readlines()))
+    train_codes = list(map(preprocess_python, open(path + "/data_ps.bodies.train.txt", encoding='utf-8',
+                                                   errors='ignore').readlines()))
+    assert len(train_summaries) == len(train_codes)
+    train = [(train_summaries[i], train_codes[i]) for i in range(len(train_summaries))]
+
+    val_summaries = list(map(preprocess_python, open(path + "/data_ps.descriptions.valid.txt", encoding='utf-8',
+                                                     errors='ignore').readlines()))
+    val_codes = list(map(preprocess_python, open(path + "/data_ps.bodies.valid.txt", encoding='utf-8',
+                                                 errors='ignore').readlines()))
+    assert len(val_summaries) == len(val_codes)
+    val = [(val_summaries[i], val_codes[i]) for i in range(len(val_summaries))]
+
+    test_summaries = list(map(preprocess_python, open(path + "/data_ps.descriptions.test.txt", encoding='utf-8',
+                                                      errors='ignore').readlines()))
+    test_codes = list(map(preprocess_python, open(path + "/data_ps.bodies.test.txt", encoding='utf-8',
+                                                  errors='ignore').readlines()))
+    assert len(test_summaries) == len(test_codes)
+    test = [(test_summaries[i], test_codes[i]) for i in range(len(test_summaries))]
+
+    return train, val, test
 
 
 def load_iyer_file(filename: str) -> Tuple[List[str], List[str]]:
