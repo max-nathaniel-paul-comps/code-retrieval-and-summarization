@@ -88,21 +88,21 @@ def preprocess_python(python: str) -> str:
 def load_edinburgh_dataset(path: str):
     train_summaries = list(map(preprocess_python, open(path + "/data_ps.descriptions.train.txt", encoding='utf-8',
                                                        errors='ignore').readlines()))
-    train_codes = list(map(preprocess_python, open(path + "/data_ps.bodies.train.txt", encoding='utf-8',
+    train_codes = list(map(preprocess_python, open(path + "/data_ps.declbodies.train.txt", encoding='utf-8',
                                                    errors='ignore').readlines()))
     assert len(train_summaries) == len(train_codes)
     train = [(train_summaries[i], train_codes[i]) for i in range(len(train_summaries))]
 
     val_summaries = list(map(preprocess_python, open(path + "/data_ps.descriptions.valid.txt", encoding='utf-8',
                                                      errors='ignore').readlines()))
-    val_codes = list(map(preprocess_python, open(path + "/data_ps.bodies.valid.txt", encoding='utf-8',
+    val_codes = list(map(preprocess_python, open(path + "/data_ps.declbodies.valid.txt", encoding='utf-8',
                                                  errors='ignore').readlines()))
     assert len(val_summaries) == len(val_codes)
     val = [(val_summaries[i], val_codes[i]) for i in range(len(val_summaries))]
 
     test_summaries = list(map(preprocess_python, open(path + "/data_ps.descriptions.test.txt", encoding='utf-8',
                                                       errors='ignore').readlines()))
-    test_codes = list(map(preprocess_python, open(path + "/data_ps.bodies.test.txt", encoding='utf-8',
+    test_codes = list(map(preprocess_python, open(path + "/data_ps.declbodies.test.txt", encoding='utf-8',
                                                   errors='ignore').readlines()))
     assert len(test_summaries) == len(test_codes)
     test = [(test_summaries[i], test_codes[i]) for i in range(len(test_summaries))]
