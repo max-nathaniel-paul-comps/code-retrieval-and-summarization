@@ -87,17 +87,19 @@ def scaled_dot_product_attention(q, k, v, mask):
 
 
 class MultiHeadAttention(tf.keras.layers.Layer):
-    def __init__(self, d_model, num_heads):
+    def __init__(self, d_model, num_heads, shared_qk=False):
         super(MultiHeadAttention, self).__init__()
         self.num_heads = num_heads
         self.d_model = d_model
+        self.shared_qk = shared_qk
 
         assert d_model % self.num_heads == 0
 
         self.depth = d_model // self.num_heads
 
         self.wq = tf.keras.layers.Dense(d_model)
-        self.wk = tf.keras.layers.Dense(d_model)
+        if not self.shared_qk:
+            self.wk = tf.keras.layers.Dense(d_model)
         self.wv = tf.keras.layers.Dense(d_model)
 
         self.dense = tf.keras.layers.Dense(d_model)
@@ -113,7 +115,10 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         batch_size = tf.shape(q)[0]
 
         q = self.wq(q)  # (batch_size, seq_len, d_model)
-        k = self.wk(k)  # (batch_size, seq_len, d_model)
+        if self.shared_qk:
+            k = self.wq(k)
+        else:
+            k = self.wk(k)  # (batch_size, seq_len, d_model)
         v = self.wv(v)  # (batch_size, seq_len, d_model)
 
         q = self.split_heads(q, batch_size)  # (batch_size, num_heads, seq_len_q, depth)
@@ -144,10 +149,10 @@ def point_wise_feed_forward_network(d_model, dff):
 
 
 class EncoderLayer(tf.keras.layers.Layer):
-    def __init__(self, d_model, num_heads, dff, rate=0.1):
+    def __init__(self, d_model, num_heads, dff, rate=0.1, shared_qk=False):
         super(EncoderLayer, self).__init__()
 
-        self.mha = MultiHeadAttention(d_model, num_heads)
+        self.mha = MultiHeadAttention(d_model, num_heads, shared_qk=shared_qk)
         self.ffn = point_wise_feed_forward_network(d_model, dff)
 
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
@@ -169,11 +174,11 @@ class EncoderLayer(tf.keras.layers.Layer):
 
 
 class DecoderLayer(tf.keras.layers.Layer):
-    def __init__(self, d_model, num_heads, dff, rate=0.1):
+    def __init__(self, d_model, num_heads, dff, rate=0.1, shared_qk=False):
         super(DecoderLayer, self).__init__()
 
-        self.mha1 = MultiHeadAttention(d_model, num_heads)
-        self.mha2 = MultiHeadAttention(d_model, num_heads)
+        self.mha1 = MultiHeadAttention(d_model, num_heads, shared_qk=shared_qk)
+        self.mha2 = MultiHeadAttention(d_model, num_heads, shared_qk=False)
 
         self.ffn = point_wise_feed_forward_network(d_model, dff)
 
@@ -207,7 +212,7 @@ class DecoderLayer(tf.keras.layers.Layer):
 
 class Encoder(tf.keras.layers.Layer):
     def __init__(self, num_layers, d_model, num_heads, dff, input_vocab_size,
-                 maximum_position_encoding, rate=0.1, universal=False):
+                 maximum_position_encoding, rate=0.1, universal=False, shared_qk=False):
         super(Encoder, self).__init__()
 
         self.universal = universal
@@ -220,9 +225,9 @@ class Encoder(tf.keras.layers.Layer):
                                                 self.d_model)
 
         if self.universal:
-            self.enc_layer = EncoderLayer(d_model, num_heads, dff, rate)
+            self.enc_layer = EncoderLayer(d_model, num_heads, dff, rate, shared_qk=shared_qk)
         else:
-            self.enc_layers = [EncoderLayer(d_model, num_heads, dff, rate)
+            self.enc_layers = [EncoderLayer(d_model, num_heads, dff, rate, shared_qk=shared_qk)
                                for _ in range(num_layers)]
 
         self.dropout = tf.keras.layers.Dropout(rate)
@@ -252,7 +257,7 @@ class Encoder(tf.keras.layers.Layer):
 
 class Decoder(tf.keras.layers.Layer):
     def __init__(self, num_layers, d_model, num_heads, dff, target_vocab_size,
-                 maximum_position_encoding, rate=0.1, universal=False):
+                 maximum_position_encoding, rate=0.1, universal=False, shared_qk=False):
         super(Decoder, self).__init__()
 
         self.universal = universal
@@ -264,9 +269,9 @@ class Decoder(tf.keras.layers.Layer):
         self.pos_encoding = positional_encoding(maximum_position_encoding, d_model)
 
         if self.universal:
-            self.dec_layer = DecoderLayer(d_model, num_heads, dff, rate)
+            self.dec_layer = DecoderLayer(d_model, num_heads, dff, rate, shared_qk=shared_qk)
         else:
-            self.dec_layers = [DecoderLayer(d_model, num_heads, dff, rate)
+            self.dec_layers = [DecoderLayer(d_model, num_heads, dff, rate, shared_qk=shared_qk)
                                for _ in range(num_layers)]
         self.dropout = tf.keras.layers.Dropout(rate)
 
@@ -301,7 +306,7 @@ class Decoder(tf.keras.layers.Layer):
 class Transformer(tf.keras.Model):
     def __init__(self, num_layers, d_model, num_heads, dff, input_vocab_size,
                  target_vocab_size, pe_input, pe_target, model_path, input_tokenizer, output_tokenizer, rate=0.1,
-                 universal=True, max_input_len=40, max_output_len=40):
+                 universal=True, max_input_len=40, max_output_len=40, shared_qk=False):
         super(Transformer, self).__init__()
 
         self.max_input_len = max_input_len
@@ -311,9 +316,11 @@ class Transformer(tf.keras.Model):
         self.output_tokenizer = output_tokenizer
 
         self.encoder = Encoder(num_layers, d_model, num_heads, dff,
-                               input_vocab_size, pe_input, rate=rate, universal=universal)
+                               input_vocab_size, pe_input, rate=rate, universal=universal,
+                               shared_qk=shared_qk)
         self.decoder = Decoder(num_layers, d_model, num_heads, dff,
-                               target_vocab_size, pe_target, rate=rate, universal=universal)
+                               target_vocab_size, pe_target, rate=rate, universal=universal,
+                               shared_qk=shared_qk)
 
         self.final_layer = tf.keras.layers.Dense(target_vocab_size)
 
@@ -660,6 +667,7 @@ class CodeSummarizationTransformer(object):
         dropout_rate = transformer_description['dropout_rate']
 
         universal = transformer_description['universal']
+        shared_qk = transformer_description['shared_qk']
 
         self.transformer = Transformer(num_layers, d_model, num_heads, dff,
                                        input_vocab_size, target_vocab_size,
@@ -667,7 +675,8 @@ class CodeSummarizationTransformer(object):
                                        model_path, code_tokenizer, language_tokenizer,
                                        max_input_len=transformer_description['c_dim'],
                                        max_output_len=transformer_description['l_dim'],
-                                       rate=dropout_rate, universal=universal)
+                                       rate=dropout_rate, universal=universal,
+                                       shared_qk=shared_qk)
         if train:
             self.transformer.train(train_codes, train_summaries, val_codes, val_summaries)
 
