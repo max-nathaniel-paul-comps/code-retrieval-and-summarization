@@ -686,17 +686,26 @@ class CodeSummarizationTransformer(object):
 
 
 def main():
-    assert len(sys.argv) == 3
+    assert len(sys.argv) == 4
     train = (sys.argv[1] == 'train')
     model_path = sys.argv[2]
+    prog_lang = sys.argv[3]
 
     print("Loading dataset...")
-    iyer_train = tdu.load_iyer_dataset("../data/iyer_csharp/train.txt")
-    iyer_val = tdu.load_iyer_dataset("../data/iyer_csharp/valid.txt")
-    our_train = tdu.load_csv_dataset("../data/our_csharp/train.csv")
-    our_val = tdu.load_csv_dataset("../data/our_csharp/val.csv")
-    all_train = list(set().union(iyer_train, our_train))
-    all_val = list(set().union(iyer_val, our_val))
+    if prog_lang == "csharp":
+        iyer_train = tdu.load_iyer_dataset("../data/iyer_csharp/train.txt")
+        iyer_val = tdu.load_iyer_dataset("../data/iyer_csharp/valid.txt")
+        our_train = tdu.load_csv_dataset("../data/our_csharp/train.csv")
+        our_val = tdu.load_csv_dataset("../data/our_csharp/val.csv")
+        all_train = list(set().union(iyer_train, our_train))
+        all_val = list(set().union(iyer_val, our_val))
+    elif prog_lang == "python":
+        all_train, all_val, _ = tdu.load_edinburgh_dataset("../data/edinburgh_python")
+    elif prog_lang == "java":
+        all_train = tdu.load_json_dataset("../data/xing_hu_java/train.json")
+        all_val = tdu.load_json_dataset("../data/xing_hu_java/valid.json")
+    else:
+        raise Exception("Invalid programming language specified: %s" % prog_lang)
 
     print("Loading transformer...")
     transformer = CodeSummarizationTransformer(model_path, train=train, train_set=all_train, val_set=all_val)

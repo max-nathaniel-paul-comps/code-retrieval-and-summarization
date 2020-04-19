@@ -1,6 +1,7 @@
 import re
 import csv
 import html
+import json
 from typing import Tuple, List
 import tensorflow as tf
 from tensorflow.keras.preprocessing.sequence import pad_sequences
@@ -149,6 +150,23 @@ def load_csv_dataset(filename: str) -> List[Tuple[str, str]]:
     for row in reader:
         summary = preprocess_language(row[0])
         code = preprocess_source_code(row[1])
+        dataset.append((summary, code))
+    return dataset
+
+
+def minimal_preprocess(x: str) -> str:
+    x = x.replace('\\n', ' ').replace('\n', ' ')
+    x = remove_excess_whitespace(x)
+    return x
+
+
+def load_json_dataset(filename: str) -> List[Tuple[str, str]]:
+    file_contents = open(filename, mode='r', encoding='utf-8').readlines()
+    dataset = []
+    for row in file_contents:
+        json_row = json.loads(row)
+        summary = minimal_preprocess(json_row["nl"])
+        code = minimal_preprocess(json_row["code"])
         dataset.append((summary, code))
     return dataset
 
