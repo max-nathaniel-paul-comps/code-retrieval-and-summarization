@@ -399,23 +399,25 @@ class Transformer(tf.keras.Model):
         val_loss /= val_batches_per_epoch
         return val_loss
 
-    def train(self, train_codes, train_summaries, val_codes, val_summaries, batch_size=64, num_epochs=100):
+    def train(self, train_inputs, train_targets, val_inputs, val_targets, batch_size=64, num_epochs=100):
 
-        train_summaries = self.output_tokenizer.tokenize_texts(train_summaries)
-        train_codes = self.input_tokenizer.tokenize_texts(train_codes)
-        train_summaries, train_codes = tdu.sequences_to_tensors(train_summaries, train_codes, self.max_output_len,
-                                                                self.max_input_len, dtype='int64')
+        train_targets = self.output_tokenizer.tokenize_texts(train_targets)
+        train_inputs = self.input_tokenizer.tokenize_texts(train_inputs)
+        train_targets, train_inputs = tdu.sequences_to_tensors(train_targets, train_inputs, self.max_output_len,
+                                                               self.max_input_len, dtype='int64')
 
-        val_summaries = self.output_tokenizer.tokenize_texts(val_summaries)
-        val_codes = self.input_tokenizer.tokenize_texts(val_codes)
-        val_summaries, val_codes = tdu.sequences_to_tensors(val_summaries, val_codes, self.max_output_len,
-                                                            self.max_input_len, dtype='int64')
+        val_targets = self.output_tokenizer.tokenize_texts(val_targets)
+        val_inputs = self.input_tokenizer.tokenize_texts(val_inputs)
+        val_targets, val_inputs = tdu.sequences_to_tensors(val_targets, val_inputs, self.max_output_len,
+                                                           self.max_input_len, dtype='int64')
 
-        print("Training on %s samples, validating on %s samples." % (train_summaries.shape[0], val_summaries.shape[0]))
+        print("Training on %s samples, validating on %s samples." % (train_targets.shape[0], val_targets.shape[0]))
 
-        batches_per_epoch = int(train_codes.shape[0] / batch_size)
+        dataset = tf.data.Dataset.from_tensor_slices((train_inputs, train_targets))
 
-        best_val_loss = self.val_loss(val_codes, val_summaries, batch_size=batch_size)
+        batches_per_epoch = int(train_inputs.shape[0] / batch_size)
+
+        best_val_loss = self.val_loss(val_inputs, val_targets, batch_size=batch_size)
         print('Initial Validation loss: {:.4f}'.format(best_val_loss))
         num_epochs_with_no_improvement = 0
 
@@ -425,26 +427,28 @@ class Transformer(tf.keras.Model):
             self.train_loss.reset_states()
             self.train_accuracy.reset_states()
 
+            shuffled = dataset.shuffle(len(train_targets), reshuffle_each_iteration=True)
+            shuffled_batches = shuffled.batch(batch_size, drop_remainder=True)
+            batches_iter = iter(shuffled_batches)
+
             # inp -> portuguese, tar -> english
             batches = tqdm.trange(batches_per_epoch)
             for batch in batches:
-                inp = train_codes[batch * batch_size: batch * batch_size + batch_size]
-                tar = train_summaries[batch * batch_size: batch * batch_size + batch_size]
+                inp, tar = next(batches_iter)
 
                 self.train_step(inp, tar)
 
                 if batch % 50 == 0:
-                    batches.set_description("Epoch {} of {}, Loss {:.4f}, Accuracy {:.4f}".format(epoch + 1, num_epochs,
-                                                                                            self.train_loss.result(),
-                                                                                            self.train_accuracy.result()))
+                    batches.set_description("Epoch {} of {}, Loss {:.4f}, Accuracy {:.4f}".format(
+                        epoch + 1, num_epochs, self.train_loss.result(), self.train_accuracy.result()))
 
-            val_loss = self.val_loss(val_codes, val_summaries, batch_size=batch_size)
+            val_loss = self.val_loss(val_inputs, val_targets, batch_size=batch_size)
             print('Validation loss: {:.4f}'.format(val_loss))
 
             if val_loss < best_val_loss:
                 num_epochs_with_no_improvement = 0
                 ckpt_save_path = self.ckpt_manager.save()
-                best_val_loss = self.val_loss(val_codes, val_summaries, batch_size=batch_size)
+                best_val_loss = self.val_loss(val_inputs, val_targets, batch_size=batch_size)
                 print('Saving checkpoint for epoch {} at {}'.format(epoch + 1,
                                                                     ckpt_save_path))
             else:
