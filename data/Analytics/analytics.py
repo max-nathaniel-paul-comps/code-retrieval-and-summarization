@@ -1,25 +1,27 @@
 import csv
 import sys
-
 import matplotlib.pyplot as plt
+import statistics as stat
 
 
-def analyze_lengths(file_name, col):
+def analyze_lengths(file_name, col, statistics=True):
     file_path = "../" + file_name
     file = open(file_path)
     reader = csv.reader(file, delimiter='\t')
     lengths = []
     for row in reader:
         lengths.append(len(row[col].split()))
-    print(lengths)
 
-    # An "interface" to matplotlib.axes.Axes.hist() method
-    n, bins, patches = plt.hist(x=lengths, bins="auto", color='#0504aa', rwidth=.95)
+    plt.hist(x=lengths, bins="auto", color="blue", rwidth=.95)
     plt.grid(axis='y', alpha=0.75)
     plt.xlabel('Length')
     plt.ylabel('Frequency')
     plt.title('Lengths of desciptions in ' + file_name)
     plt.show()
+
+    if statistics:
+        print("Mean: " + str(stat.mean(lengths)))
+        print("Std Dev: " + str(stat.stdev(lengths)))
 
 
 if __name__ == "__main__":
