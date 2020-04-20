@@ -1,6 +1,7 @@
 import re
 import csv
 import html
+import json
 from typing import Tuple, List
 import tensorflow as tf
 from tensorflow.keras.preprocessing.sequence import pad_sequences
@@ -88,21 +89,21 @@ def preprocess_python(python: str) -> str:
 def load_edinburgh_dataset(path: str):
     train_summaries = list(map(preprocess_python, open(path + "/data_ps.descriptions.train.txt", encoding='utf-8',
                                                        errors='ignore').readlines()))
-    train_codes = list(map(preprocess_python, open(path + "/data_ps.bodies.train.txt", encoding='utf-8',
+    train_codes = list(map(preprocess_python, open(path + "/data_ps.declbodies.train.txt", encoding='utf-8',
                                                    errors='ignore').readlines()))
     assert len(train_summaries) == len(train_codes)
     train = [(train_summaries[i], train_codes[i]) for i in range(len(train_summaries))]
 
     val_summaries = list(map(preprocess_python, open(path + "/data_ps.descriptions.valid.txt", encoding='utf-8',
                                                      errors='ignore').readlines()))
-    val_codes = list(map(preprocess_python, open(path + "/data_ps.bodies.valid.txt", encoding='utf-8',
+    val_codes = list(map(preprocess_python, open(path + "/data_ps.declbodies.valid.txt", encoding='utf-8',
                                                  errors='ignore').readlines()))
     assert len(val_summaries) == len(val_codes)
     val = [(val_summaries[i], val_codes[i]) for i in range(len(val_summaries))]
 
     test_summaries = list(map(preprocess_python, open(path + "/data_ps.descriptions.test.txt", encoding='utf-8',
                                                       errors='ignore').readlines()))
-    test_codes = list(map(preprocess_python, open(path + "/data_ps.bodies.test.txt", encoding='utf-8',
+    test_codes = list(map(preprocess_python, open(path + "/data_ps.declbodies.test.txt", encoding='utf-8',
                                                   errors='ignore').readlines()))
     assert len(test_summaries) == len(test_codes)
     test = [(test_summaries[i], test_codes[i]) for i in range(len(test_summaries))]
@@ -149,6 +150,23 @@ def load_csv_dataset(filename: str) -> List[Tuple[str, str]]:
     for row in reader:
         summary = preprocess_language(row[0])
         code = preprocess_source_code(row[1])
+        dataset.append((summary, code))
+    return dataset
+
+
+def minimal_preprocess(x: str) -> str:
+    x = x.replace('\\n', ' ').replace('\n', ' ')
+    x = remove_excess_whitespace(x)
+    return x
+
+
+def load_json_dataset(filename: str) -> List[Tuple[str, str]]:
+    file_contents = open(filename, mode='r', encoding='utf-8').readlines()
+    dataset = []
+    for row in file_contents:
+        json_row = json.loads(row)
+        summary = minimal_preprocess(json_row["nl"])
+        code = minimal_preprocess(json_row["code"])
         dataset.append((summary, code))
     return dataset
 

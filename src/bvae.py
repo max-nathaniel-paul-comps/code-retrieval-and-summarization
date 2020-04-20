@@ -8,11 +8,6 @@ from tokenizer import Tokenizer
 import transformer
 
 
-gpu_devices = tf.config.experimental.list_physical_devices('GPU')
-for device in gpu_devices:
-    tf.config.experimental.set_memory_growth(device, True)
-
-
 def recon_loss_bow(true, pred_prob, vocab_size):
     mask = tf.logical_not(tf.equal(true, 0))
     true_ragged = tf.ragged.boolean_mask(true, mask)

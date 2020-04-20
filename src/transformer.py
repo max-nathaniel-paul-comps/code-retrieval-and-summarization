@@ -87,17 +87,19 @@ def scaled_dot_product_attention(q, k, v, mask):
 
 
 class MultiHeadAttention(tf.keras.layers.Layer):
-    def __init__(self, d_model, num_heads):
+    def __init__(self, d_model, num_heads, shared_qk=False):
         super(MultiHeadAttention, self).__init__()
         self.num_heads = num_heads
         self.d_model = d_model
+        self.shared_qk = shared_qk
 
         assert d_model % self.num_heads == 0
 
         self.depth = d_model // self.num_heads
 
         self.wq = tf.keras.layers.Dense(d_model)
-        self.wk = tf.keras.layers.Dense(d_model)
+        if not self.shared_qk:
+            self.wk = tf.keras.layers.Dense(d_model)
         self.wv = tf.keras.layers.Dense(d_model)
 
         self.dense = tf.keras.layers.Dense(d_model)
@@ -113,7 +115,10 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         batch_size = tf.shape(q)[0]
 
         q = self.wq(q)  # (batch_size, seq_len, d_model)
-        k = self.wk(k)  # (batch_size, seq_len, d_model)
+        if self.shared_qk:
+            k = self.wq(k)
+        else:
+            k = self.wk(k)  # (batch_size, seq_len, d_model)
         v = self.wv(v)  # (batch_size, seq_len, d_model)
 
         q = self.split_heads(q, batch_size)  # (batch_size, num_heads, seq_len_q, depth)
@@ -144,10 +149,10 @@ def point_wise_feed_forward_network(d_model, dff):
 
 
 class EncoderLayer(tf.keras.layers.Layer):
-    def __init__(self, d_model, num_heads, dff, rate=0.1):
+    def __init__(self, d_model, num_heads, dff, rate=0.1, shared_qk=False):
         super(EncoderLayer, self).__init__()
 
-        self.mha = MultiHeadAttention(d_model, num_heads)
+        self.mha = MultiHeadAttention(d_model, num_heads, shared_qk=shared_qk)
         self.ffn = point_wise_feed_forward_network(d_model, dff)
 
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
@@ -169,11 +174,11 @@ class EncoderLayer(tf.keras.layers.Layer):
 
 
 class DecoderLayer(tf.keras.layers.Layer):
-    def __init__(self, d_model, num_heads, dff, rate=0.1):
+    def __init__(self, d_model, num_heads, dff, rate=0.1, shared_qk=False):
         super(DecoderLayer, self).__init__()
 
-        self.mha1 = MultiHeadAttention(d_model, num_heads)
-        self.mha2 = MultiHeadAttention(d_model, num_heads)
+        self.mha1 = MultiHeadAttention(d_model, num_heads, shared_qk=shared_qk)
+        self.mha2 = MultiHeadAttention(d_model, num_heads, shared_qk=False)
 
         self.ffn = point_wise_feed_forward_network(d_model, dff)
 
@@ -207,7 +212,7 @@ class DecoderLayer(tf.keras.layers.Layer):
 
 class Encoder(tf.keras.layers.Layer):
     def __init__(self, num_layers, d_model, num_heads, dff, input_vocab_size,
-                 maximum_position_encoding, rate=0.1, universal=False):
+                 maximum_position_encoding, rate=0.1, universal=False, shared_qk=False):
         super(Encoder, self).__init__()
 
         self.universal = universal
@@ -220,9 +225,9 @@ class Encoder(tf.keras.layers.Layer):
                                                 self.d_model)
 
         if self.universal:
-            self.enc_layer = EncoderLayer(d_model, num_heads, dff, rate)
+            self.enc_layer = EncoderLayer(d_model, num_heads, dff, rate, shared_qk=shared_qk)
         else:
-            self.enc_layers = [EncoderLayer(d_model, num_heads, dff, rate)
+            self.enc_layers = [EncoderLayer(d_model, num_heads, dff, rate, shared_qk=shared_qk)
                                for _ in range(num_layers)]
 
         self.dropout = tf.keras.layers.Dropout(rate)
@@ -252,7 +257,7 @@ class Encoder(tf.keras.layers.Layer):
 
 class Decoder(tf.keras.layers.Layer):
     def __init__(self, num_layers, d_model, num_heads, dff, target_vocab_size,
-                 maximum_position_encoding, rate=0.1, universal=False):
+                 maximum_position_encoding, rate=0.1, universal=False, shared_qk=False):
         super(Decoder, self).__init__()
 
         self.universal = universal
@@ -264,9 +269,9 @@ class Decoder(tf.keras.layers.Layer):
         self.pos_encoding = positional_encoding(maximum_position_encoding, d_model)
 
         if self.universal:
-            self.dec_layer = DecoderLayer(d_model, num_heads, dff, rate)
+            self.dec_layer = DecoderLayer(d_model, num_heads, dff, rate, shared_qk=shared_qk)
         else:
-            self.dec_layers = [DecoderLayer(d_model, num_heads, dff, rate)
+            self.dec_layers = [DecoderLayer(d_model, num_heads, dff, rate, shared_qk=shared_qk)
                                for _ in range(num_layers)]
         self.dropout = tf.keras.layers.Dropout(rate)
 
@@ -301,7 +306,7 @@ class Decoder(tf.keras.layers.Layer):
 class Transformer(tf.keras.Model):
     def __init__(self, num_layers, d_model, num_heads, dff, input_vocab_size,
                  target_vocab_size, pe_input, pe_target, model_path, input_tokenizer, output_tokenizer, rate=0.1,
-                 universal=True, max_input_len=40, max_output_len=40):
+                 universal=True, max_input_len=40, max_output_len=40, shared_qk=False):
         super(Transformer, self).__init__()
 
         self.max_input_len = max_input_len
@@ -311,9 +316,11 @@ class Transformer(tf.keras.Model):
         self.output_tokenizer = output_tokenizer
 
         self.encoder = Encoder(num_layers, d_model, num_heads, dff,
-                               input_vocab_size, pe_input, rate=rate, universal=universal)
+                               input_vocab_size, pe_input, rate=rate, universal=universal,
+                               shared_qk=shared_qk)
         self.decoder = Decoder(num_layers, d_model, num_heads, dff,
-                               target_vocab_size, pe_target, rate=rate, universal=universal)
+                               target_vocab_size, pe_target, rate=rate, universal=universal,
+                               shared_qk=shared_qk)
 
         self.final_layer = tf.keras.layers.Dense(target_vocab_size)
 
@@ -392,23 +399,25 @@ class Transformer(tf.keras.Model):
         val_loss /= val_batches_per_epoch
         return val_loss
 
-    def train(self, train_codes, train_summaries, val_codes, val_summaries, batch_size=64, num_epochs=100):
+    def train(self, train_inputs, train_targets, val_inputs, val_targets, batch_size=64, num_epochs=100):
 
-        train_summaries = self.output_tokenizer.tokenize_texts(train_summaries)
-        train_codes = self.input_tokenizer.tokenize_texts(train_codes)
-        train_summaries, train_codes = tdu.sequences_to_tensors(train_summaries, train_codes, self.max_output_len,
-                                                                self.max_input_len, dtype='int64')
+        train_targets = self.output_tokenizer.tokenize_texts(train_targets)
+        train_inputs = self.input_tokenizer.tokenize_texts(train_inputs)
+        train_targets, train_inputs = tdu.sequences_to_tensors(train_targets, train_inputs, self.max_output_len,
+                                                               self.max_input_len, dtype='int64')
 
-        val_summaries = self.output_tokenizer.tokenize_texts(val_summaries)
-        val_codes = self.input_tokenizer.tokenize_texts(val_codes)
-        val_summaries, val_codes = tdu.sequences_to_tensors(val_summaries, val_codes, self.max_output_len,
-                                                            self.max_input_len, dtype='int64')
+        val_targets = self.output_tokenizer.tokenize_texts(val_targets)
+        val_inputs = self.input_tokenizer.tokenize_texts(val_inputs)
+        val_targets, val_inputs = tdu.sequences_to_tensors(val_targets, val_inputs, self.max_output_len,
+                                                           self.max_input_len, dtype='int64')
 
-        print("Training on %s samples, validating on %s samples." % (train_summaries.shape[0], val_summaries.shape[0]))
+        print("Training on %s samples, validating on %s samples." % (train_targets.shape[0], val_targets.shape[0]))
 
-        batches_per_epoch = int(train_codes.shape[0] / batch_size)
+        dataset = tf.data.Dataset.from_tensor_slices((train_inputs, train_targets))
 
-        best_val_loss = self.val_loss(val_codes, val_summaries, batch_size=batch_size)
+        batches_per_epoch = int(train_inputs.shape[0] / batch_size)
+
+        best_val_loss = self.val_loss(val_inputs, val_targets, batch_size=batch_size)
         print('Initial Validation loss: {:.4f}'.format(best_val_loss))
         num_epochs_with_no_improvement = 0
 
@@ -418,26 +427,28 @@ class Transformer(tf.keras.Model):
             self.train_loss.reset_states()
             self.train_accuracy.reset_states()
 
+            shuffled = dataset.shuffle(len(train_targets), reshuffle_each_iteration=True)
+            shuffled_batches = shuffled.batch(batch_size, drop_remainder=True)
+            batches_iter = iter(shuffled_batches)
+
             # inp -> portuguese, tar -> english
             batches = tqdm.trange(batches_per_epoch)
             for batch in batches:
-                inp = train_codes[batch * batch_size: batch * batch_size + batch_size]
-                tar = train_summaries[batch * batch_size: batch * batch_size + batch_size]
+                inp, tar = next(batches_iter)
 
                 self.train_step(inp, tar)
 
                 if batch % 50 == 0:
-                    batches.set_description("Epoch {} of {}, Loss {:.4f}, Accuracy {:.4f}".format(epoch + 1, num_epochs,
-                                                                                            self.train_loss.result(),
-                                                                                            self.train_accuracy.result()))
+                    batches.set_description("Epoch {} of {}, Loss {:.4f}, Accuracy {:.4f}".format(
+                        epoch + 1, num_epochs, self.train_loss.result(), self.train_accuracy.result()))
 
-            val_loss = self.val_loss(val_codes, val_summaries, batch_size=batch_size)
+            val_loss = self.val_loss(val_inputs, val_targets, batch_size=batch_size)
             print('Validation loss: {:.4f}'.format(val_loss))
 
             if val_loss < best_val_loss:
                 num_epochs_with_no_improvement = 0
                 ckpt_save_path = self.ckpt_manager.save()
-                best_val_loss = self.val_loss(val_codes, val_summaries, batch_size=batch_size)
+                best_val_loss = self.val_loss(val_inputs, val_targets, batch_size=batch_size)
                 print('Saving checkpoint for epoch {} at {}'.format(epoch + 1,
                                                                     ckpt_save_path))
             else:
@@ -660,6 +671,7 @@ class CodeSummarizationTransformer(object):
         dropout_rate = transformer_description['dropout_rate']
 
         universal = transformer_description['universal']
+        shared_qk = transformer_description['shared_qk']
 
         self.transformer = Transformer(num_layers, d_model, num_heads, dff,
                                        input_vocab_size, target_vocab_size,
@@ -667,23 +679,33 @@ class CodeSummarizationTransformer(object):
                                        model_path, code_tokenizer, language_tokenizer,
                                        max_input_len=transformer_description['c_dim'],
                                        max_output_len=transformer_description['l_dim'],
-                                       rate=dropout_rate, universal=universal)
+                                       rate=dropout_rate, universal=universal,
+                                       shared_qk=shared_qk)
         if train:
             self.transformer.train(train_codes, train_summaries, val_codes, val_summaries)
 
 
 def main():
-    assert len(sys.argv) == 3
+    assert len(sys.argv) == 4
     train = (sys.argv[1] == 'train')
     model_path = sys.argv[2]
+    prog_lang = sys.argv[3]
 
     print("Loading dataset...")
-    iyer_train = tdu.load_iyer_dataset("../data/iyer_csharp/train.txt")
-    iyer_val = tdu.load_iyer_dataset("../data/iyer_csharp/valid.txt")
-    our_train = tdu.load_csv_dataset("../data/our_csharp/train.csv")
-    our_val = tdu.load_csv_dataset("../data/our_csharp/val.csv")
-    all_train = list(set().union(iyer_train, our_train))
-    all_val = list(set().union(iyer_val, our_val))
+    if prog_lang == "csharp":
+        iyer_train = tdu.load_iyer_dataset("../data/iyer_csharp/train.txt")
+        iyer_val = tdu.load_iyer_dataset("../data/iyer_csharp/valid.txt")
+        our_train = tdu.load_csv_dataset("../data/our_csharp/train.csv")
+        our_val = tdu.load_csv_dataset("../data/our_csharp/val.csv")
+        all_train = list(set().union(iyer_train, our_train))
+        all_val = list(set().union(iyer_val, our_val))
+    elif prog_lang == "python":
+        all_train, all_val, _ = tdu.load_edinburgh_dataset("../data/edinburgh_python")
+    elif prog_lang == "java":
+        all_train = tdu.load_json_dataset("../data/xing_hu_java/train.json")
+        all_val = tdu.load_json_dataset("../data/xing_hu_java/valid.json")
+    else:
+        raise Exception("Invalid programming language specified: %s" % prog_lang)
 
     print("Loading transformer...")
     transformer = CodeSummarizationTransformer(model_path, train=train, train_set=all_train, val_set=all_val)
