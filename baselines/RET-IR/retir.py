@@ -9,7 +9,7 @@ import text_data_utils as tdu
 
 DEBUG_PRINT = False
 DO_SHIFTING = False
-TF_SCHEME = 4
+TF_SCHEME = 0
 NUM_TESTS = 10
 
 def topXInds(lis, x):
@@ -22,26 +22,8 @@ def topXInds(lis, x):
 def retir(query, candidates, numToReturn):
     #RETURNS INDICES OF X HIGHEST CANDIDATES, where X is numToReturn.
     qTokens = tdu.tokenize_text(query)
-    qScores = []
     cTokens = tdu.tokenize_texts(candidates)
-    cScoreLists = []
-    for token in qTokens:
-        qScores.append(tfidf.tfidf(token, query, candidates, TF_SCHEME))
-    for cTokenList in range(len(cTokens)):
-        temp = []
-        for token in cTokens[cTokenList]:
-            temp.append(tfidf.tfidf(token, candidates[cTokenList], candidates, TF_SCHEME))
-        cScoreLists.append(temp)
-
-    similarities = []
-    for cS in cScoreLists:
-        if len(cS) > len(qScores):
-            similarities.append(cs.cosSim(qScores, cS[0:len(qScores)]))
-        elif len(cS) < len(qScores):
-            similarities.append(cs.cosSim(qScores[0:len(cS)], cS))
-        else:
-            similarities.append(cs.cosSim(qScores, cS))
-    return topXInds(similarities, numToReturn)
+    return retir_pt(qTokens, cTokens, numToReturn)
 
 def retir_pt(query, candidates, numToReturn):
     #pt=pre-tokenized
@@ -68,10 +50,11 @@ def retir_pt(query, candidates, numToReturn):
             similarities.append(cs.cosSim(qScores, cS))
     return topXInds(similarities, numToReturn)
 
-def randSample(summaries, codes, num):
+def randSample(summaries, codes, num, doingAlts = False, altSums = None):
     used = []
     sumRet = []
     codRet = []
+    altRet = []
     for x in range(num):
         choice = random.randint(0, len(summaries)-1)
         #put this in just to bother you nathaniel :)
@@ -80,7 +63,12 @@ def randSample(summaries, codes, num):
         used.append(choice)
         sumRet.append(summaries[choice])
         codRet.append(codes[choice])
-    return sumRet, codRet
+        if doingAlts:
+            altRet.append(altSums[choice])
+    if doingAlts:
+        return sumRet, codRet, altRet
+    else:
+        return sumRet, codRet
         
 def testOnData():
     summaries, codes = tdu.load_iyer_file("../../data/iyer_csharp/test.txt")
@@ -98,6 +86,14 @@ def setup(numToTake):
     summaries, codes = tdu.load_iyer_file("../../data/iyer_csharp/dev.txt")
     sumSnips, codeSnips = randSample(summaries, codes, numToTake)
     return sumSnips, codeSnips
+
+def setupAlt(numToTake):
+    dataset = tdu.load_iyer_dataset("../../data/iyer_csharp/dev.txt", "../../data/iyer_csharp/dev_alternate_summaries.txt")
+    summaries = [ex[0] for ex in dataset]
+    codes = [ex[1] for ex in dataset]
+    alt_summaries = [ex[2] for ex in dataset]
+    sumSnips, codeSnips, altSnips = randSample(summaries, codes, numToTake, True, alt_summaries)
+    return sumSnips, codeSnips, altSnips
 
 def run50SnippetTest():
     sumSnips, codeSnips = setup(50)
@@ -176,6 +172,29 @@ def runShuffleQuery(numSnips, numTimes):
     print("Final MRR for shuffle: ")
     print(ev.mrr(listRanks))
 
+def runAlternateQuery(numSnips, numTests):
+    listRanks = []
+    for x in range(numTests):
+        sumSnips, codeSnips, altSnips = setupAlt(numSnips)
+        corInd = random.choice(range(len(codeSnips)))
+        corSum = sumSnips[corInd]
+        dPrint("Original summary:")
+        dPrint(corSum)
+        dPrint("For code:")
+        dPrint(codeSnips[corInd])
+        altSum = altSnips[corInd][0]
+        #altSum = randCharString(len(corSum))
+        dPrint("Alternate summary:")
+        dPrint(altSum)
+        returns = retir(altSum, sumSnips, numSnips)
+        dPrint("Correct return was at rank:")
+        dPrint(returns.index(corInd))
+        dPrint("Top result given:")
+        dPrint(sumSnips[returns[0]])
+        listRanks.append(returns.index(corInd))
+        print("Finished test ", x)
+    print("Final MRR for alts: ")
+    print(ev.mrr(listRanks))
 def randCharString(length):
     returner = ""
     checker = string.ascii_letters + " </>"
@@ -191,17 +210,23 @@ if __name__=="__main__":
     print("(0) TestOnData() (DEPRECATED TESTING FUNC)")
     print("(1) Manual query testing")
     print("(2) Snippet tests using shuffle query testing")
+    print("(3) Snippet tests using alternate summaries")
     resp = input()
 
     if resp=="0":
         testOnData()
     elif resp=="1":
         runSingleQuery()
-    else:
+    elif resp=="2":
         print("How many snippets per test? Recommended 50")
         numSnips = int(input())
         print("How many tests to run?")
         numTests = int(input())
         runShuffleQuery(numSnips, numTests)
-    
+    else:
+        print("How many snippets per test? Recommended 50")
+        numSnips = int(input())
+        print("How many tests to run?")
+        numTests = int(input())
+        runAlternateQuery(numSnips, numTests)
         

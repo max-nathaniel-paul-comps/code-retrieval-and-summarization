@@ -24,7 +24,7 @@ def termFrequency_pt(term, doc_pt, scheme):
             return 0
     #Adjusted for document length
     elif scheme==2:
-        return termCount/len(words)
+        return termCount/len(doc_pt)
     #logarithmically scaled freq
     elif scheme==3:
         return math.log(1 + termCount)
