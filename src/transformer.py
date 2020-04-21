@@ -512,23 +512,22 @@ class Transformer(tf.keras.Model):
         else:
             sentence = sentence_ragged
         result_no_sos = result[1:]
-        result_no_eos = result[:-1]
 
         encoder_decoder_attention = tf.squeeze(tf.convert_to_tensor([att_layer[1] for att_layer in attention]), axis=1)
 
-        total_attention = tf.reduce_sum(tf.reduce_sum(encoder_decoder_attention, axis=0), axis=0)
+        total_attention = tf.reduce_sum(encoder_decoder_attention[-1], axis=0)
         zeros_mask = tf.logical_not(tf.equal(total_attention, 0))
         total_attention_ragged = tf.ragged.boolean_mask(total_attention, zeros_mask)
         total_attention_non_ragged = total_attention_ragged.to_tensor()
         total_attention_softmax = tf.nn.softmax(total_attention_non_ragged, axis=-1)
 
-        fig = plt.figure(figsize=(24, 8), dpi=192)
-        ax = fig.add_subplot(1, 2, 1)
+        fig = plt.figure(figsize=(6, 3), dpi=192)
+        ax = fig.add_subplot(1, 1, 1)
 
         # plot the attention weights
         ax.matshow(total_attention_softmax, cmap='viridis')
 
-        fontdict = {'fontsize': 8}
+        fontdict = {'fontsize': 6}
 
         ax.set_xticks(range(len(sentence)))
         ax.set_yticks(range(len(result_no_sos)))
@@ -541,28 +540,6 @@ class Transformer(tf.keras.Model):
                            fontdict=fontdict)
 
         ax.set_xlabel('Encoder-Decoder Attention')
-        
-        decoder_self_attention = tf.squeeze(tf.convert_to_tensor([att_layer[0] for att_layer in attention]), axis=1)
-        total_attention_2 = tf.reduce_sum(tf.reduce_sum(decoder_self_attention, axis=0), axis=0)
-        mask_2 = tf.logical_not(tf.equal(total_attention_2, 0))
-        total_attention_ragged_2 = tf.ragged.boolean_mask(total_attention_2, mask_2)
-        total_attention_non_ragged_2 = total_attention_ragged_2.to_tensor()
-        total_attention_softmax_2 = tf.nn.softmax(total_attention_non_ragged_2, axis=-1)
-
-        ax2 = fig.add_subplot(1, 2, 2)
-        ax2.matshow(total_attention_softmax_2, cmap='viridis')
-        ax2.set_xticks(range(len(result_no_eos)))
-        ax2.set_yticks(range(len(result_no_sos)))
-
-        ax2.set_xticklabels(
-            [self.output_tokenizer.de_tokenize_texts([[i]], hide_eos=False)[0] for i in result_no_eos],
-            fontdict=fontdict, rotation=90
-        )
-        ax2.set_yticklabels(
-            [self.output_tokenizer.de_tokenize_texts([[i]], hide_eos=False)[0] for i in result_no_sos],
-            fontdict=fontdict
-        )
-        ax2.set_xlabel('Decoder Self-Attention')
 
         plt.show()
 
@@ -702,8 +679,8 @@ def main():
     elif prog_lang == "python":
         all_train, all_val, _ = tdu.load_edinburgh_dataset("../data/edinburgh_python")
     elif prog_lang == "java":
-        all_train = tdu.load_json_dataset("../data/xing_hu_java/train.json")
-        all_val = tdu.load_json_dataset("../data/xing_hu_java/valid.json")
+        all_train = tdu.load_json_dataset("../data/leclair_java/train.json")
+        all_val = tdu.load_json_dataset("../data/leclair_java/val.json")
     else:
         raise Exception("Invalid programming language specified: %s" % prog_lang)
 

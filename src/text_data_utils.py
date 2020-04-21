@@ -154,8 +154,11 @@ def load_csv_dataset(filename: str) -> List[Tuple[str, str]]:
     return dataset
 
 
-def minimal_preprocess(x: str) -> str:
+def minimal_preprocess(x: str, remove_stars=False) -> str:
     x = x.replace('\\n', ' ').replace('\n', ' ')
+    x = x.replace('\\t', ' ').replace('\t', ' ')
+    if remove_stars:
+        x = x.replace('/*', ' ').replace('*/', ' ').replace('*', ' ')
     x = remove_excess_whitespace(x)
     return x
 
@@ -165,8 +168,8 @@ def load_json_dataset(filename: str) -> List[Tuple[str, str]]:
     dataset = []
     for row in file_contents:
         json_row = json.loads(row)
-        summary = minimal_preprocess(json_row["nl"])
-        code = minimal_preprocess(json_row["code"])
+        summary = minimal_preprocess(json_row["nl"], remove_stars=True)
+        code = minimal_preprocess(json_row["code"], remove_stars=False)
         dataset.append((summary, code))
     return dataset
 
