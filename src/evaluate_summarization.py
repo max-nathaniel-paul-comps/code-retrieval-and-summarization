@@ -1,75 +1,70 @@
-import sys
 import nltk
 import numpy as np
 import text_data_utils as tdu
-import tqdm
 import random
+import argparse
 from bvae import BimodalVariationalAutoEncoder
 from transformer import CodeSummarizationTransformer
 
 
 nltk.download('wordnet')
 
-assert len(sys.argv) == 4, "Usage: python evaluate_summarization.py prog_lang path/to/bvae/model/dir/ path/to/transformer"
-prog_lang = sys.argv[1]
-bvae_model_path = sys.argv[2]
-transformer_model_path = sys.argv[3]
+parser = argparse.ArgumentParser(description="Evaluate a model's source code summarization")
+parser.add_argument("--prog_lang", help="What programming language to evaluate the summarization of",
+                    choices=["csharp", "java", "python"], required=True)
+parser.add_argument("--model_type", help="What kind of model you want to evaluate", choices=["bvae", "transformer"],
+                    required=True)
+parser.add_argument("--model_path", help="Path to the model", required=True)
+args = vars(parser.parse_args())
+
+model_type = args["model_type"]
+model_path = args["model_path"]
+prog_lang = args["prog_lang"]
+
+if model_type == "bvae":
+    bvae = BimodalVariationalAutoEncoder(model_path)
+    summarize = lambda x: bvae.latent_to_summaries(bvae.codes_to_latent([x]))[0]
+elif model_type == "transformer":
+    transformer = CodeSummarizationTransformer(model_path)
+    summarize = lambda x: transformer.summarize(x)
+else:
+    raise Exception()
 
 if prog_lang == "csharp":
     dataset = tdu.load_iyer_dataset("../data/iyer_csharp/dev.txt",
                                     alternate_summaries_filename="../data/iyer_csharp/dev_alternate_summaries.txt")
+    codes = [ex[1] for ex in dataset]
+    true_summaries = [[ex[0]] + ex[2] for ex in dataset]
 elif prog_lang == "python":
     _, _, dataset = tdu.load_edinburgh_dataset("../data/edinburgh_python")
+    codes = [ex[1] for ex in dataset]
+    true_summaries = [[ex[0]] for ex in dataset]
 elif prog_lang == "java":
     dataset = tdu.load_json_dataset("../data/leclair_java/test.json")
     dataset = random.sample(dataset, 300)
-else:
-    raise Exception("lmao")
-
-if bvae_model_path != "no_bvae":
-    bvae_model = BimodalVariationalAutoEncoder(bvae_model_path)
-if transformer_model_path != "no_transformer":
-    transformer_model = CodeSummarizationTransformer(transformer_model_path)
-
-codes = [ex[1] for ex in dataset]
-
-if bvae_model_path != "no_bvae":
-    dataset_latent_bvae = bvae_model.codes_to_latent(codes)
-    dataset_summarized_bvae = bvae_model.latent_to_summaries(dataset_latent_bvae)
-if transformer_model_path != "no_transformer":
-    dataset_summarized_transformer = []
-    for i in tqdm.trange(len(codes)):
-        dataset_summarized_transformer.append(transformer_model.transformer.translate(codes[i], print_output=False))
-
-if prog_lang == "python":
-    true_summaries = [[ex[0]] + ex[2] for ex in dataset]
-else:
+    codes = [ex[1] for ex in dataset]
     true_summaries = [[ex[0]] for ex in dataset]
+else:
+    raise Exception()
 
-bvae_meteors = []
-transformer_meteors = []
+meteors = []
+predicts = []
 for i in range(len(dataset)):
+    print("%d of %d" % (i, len(dataset)))
     print("Code: %s" % codes[i])
     print("True Summaries: %s" % true_summaries[i])
-    if bvae_model_path != "no_bvae":
-        bvae_meteor = nltk.translate.meteor_score.meteor_score(true_summaries[i], dataset_summarized_bvae[i])
-        bvae_meteors.append(bvae_meteor)
-        print("BVAE Predicted Summary: %s" % dataset_summarized_bvae[i])
-        print("BVAE Summary METEOR score: %s" % bvae_meteor)
-    if transformer_model_path != "no_transformer":
-        transformer_meteor = nltk.translate.meteor_score.meteor_score(true_summaries[i], dataset_summarized_transformer[i])
-        transformer_meteors.append(transformer_meteor)
-        print("Transformer Predicted Summary: %s" % dataset_summarized_transformer[i])
-        print("Transformer METEOR score: %s\n" % transformer_meteor)
+    predicted = summarize(codes[i])
+    print("%s Predicted Summary: %s" % (model_type, predicted))
+    predicts.append(predicted)
+    meteor = nltk.translate.meteor_score.meteor_score(true_summaries[i], predicted)
+    print("%s METEOR score: %.4f" % (model_type, meteor))
+    meteors.append(meteor)
+    print()
 
-if bvae_model_path != "no_bvae":
-    average_bvae_meteor = np.mean(bvae_meteors)
-    print("\nAverage BVAE METEOR score: %s" % average_bvae_meteor)
-    bvae_corpus_bleu = nltk.translate.bleu_score.corpus_bleu(true_summaries, dataset_summarized_bvae)
-    print("BVAE Corpus BLEU score: %s" % bvae_corpus_bleu)
+average_meteor = np.mean(meteors)
+print("%s Average METEOR score: %.4f\n" % (model_type, average_meteor))
 
-if transformer_model_path != "no_transformer":
-    average_transformer_meteor = np.mean(transformer_meteors)
-    print("Average Transformer METEOR score: %s\n" % average_transformer_meteor)
-    transformer_corpus_bleu = nltk.translate.bleu_score.corpus_bleu(true_summaries, dataset_summarized_transformer)
-    print("Transformer Corpus BLEU score: %s" % transformer_corpus_bleu)
+corpus_bleu_4 = nltk.translate.bleu_score.corpus_bleu(true_summaries, predicts, weights=(0.25, 0.25, 0.25, 0.25))
+corpus_bleu_2 = nltk.translate.bleu_score.corpus_bleu(true_summaries, predicts, weights=(0.5, 0.5, 0.0, 0.0))
+print("%s Corpus BLEU-4 score: %.4f" % (model_type, corpus_bleu_4))
+print("%s Corpus BLEU-2 score: %.4f" % (model_type, corpus_bleu_2))

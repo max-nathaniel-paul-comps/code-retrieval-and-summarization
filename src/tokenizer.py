@@ -2,6 +2,8 @@ import os
 import text_data_utils as tdu
 import tensorflow_datasets as tfds
 import json
+from typing import List
+from CSharp4Lexer import *
 
 
 def build_vocab(training_texts, min_count, oov_token='<unk>'):
@@ -52,6 +54,30 @@ def decode_text(encoded_text, vocab):
     return decoded
 
 
+def lex_csharp(code: str, max_len: int = 2048) -> List[str]:
+    lexer = CSharp4Lexer(InputStream(code))
+    token_stream = CommonTokenStream(lexer)
+    token_stream.fetch(3 * max_len)  # We fetch more than the max len so we can detect oversize codes later...
+    parsed_code = ['<s>']
+    for token in token_stream.tokens:
+        if token.type == 109:
+            parsed_code += ["CODE_INTEGER"]
+        elif token.type == 111:
+            parsed_code += ["CODE_REAL"]
+        elif token.type == 112:
+            parsed_code += ["CODE_CHAR"]
+        elif token.type == 113:
+            parsed_code += ["CODE_STRING"]
+        elif token.type == -1:
+            parsed_code += ["</s>"]
+            break
+        elif token.type in [4, 5, 6, 7, 8, 9]:  # whitespace and comments and newline
+            pass
+        else:
+            parsed_code += [str(token.text)]
+    return parsed_code
+
+
 class Tokenizer(object):
 
     def __init__(self, seq_type, path, target_vocab_size=None, vocab_min_count=None, training_texts=None):
@@ -67,7 +93,7 @@ class Tokenizer(object):
             if seq_type == 'regex_based':
                 splitter = tdu.tokenize_text
             else:
-                splitter = tdu.parse_code
+                splitter = lex_csharp
 
             def de_splitter(text):
                 return " ".join(text)
@@ -84,8 +110,8 @@ class Tokenizer(object):
                 save_vocab_to_file(vocab, path)
 
             self.vocab_size = len(vocab)
-            self._tokenizer_fn = lambda texts: [encode_split_text(splitter(text), vocab) for text in texts]
-            self._de_tokenizer_fn = lambda seqs: [de_splitter(decode_text(seq, vocab)) for seq in seqs]
+            self.tokenize_text = lambda text: encode_split_text(splitter(text), vocab)
+            self.de_tokenize_text = lambda seq: de_splitter(decode_text(seq, vocab))
             self.start_token = vocab['<s>']
             self.end_token = vocab['</s>']
 
@@ -95,32 +121,15 @@ class Tokenizer(object):
             else:
                 print("Could not find the tokenizer save file '%s'. Creating the tokenizer..." % (path + ".subwords"))
                 subword_encoder = tfds.features.text.SubwordTextEncoder.build_from_corpus(
-                    tdu.eof_texts(training_texts), target_vocab_size, reserved_tokens=['<s>', '</s>']
+                    (tdu.eof_text(text) for text in training_texts), target_vocab_size, reserved_tokens=['<s>', '</s>']
                 )
                 subword_encoder.save_to_file(path)
 
             self.vocab_size = subword_encoder.vocab_size
-            self._tokenizer_fn = lambda texts: [
-                subword_encoder.encode(tdu.eof_text(text)) for text in texts
-            ]
-            self._de_tokenizer_fn = lambda seqs: [
-                subword_encoder.decode(seq) for seq in seqs
-            ]
+            self.tokenize_text = lambda text: subword_encoder.encode(tdu.eof_text(text))
+            self.de_tokenize_text = lambda seq: subword_encoder.decode(seq)
             self.start_token = subword_encoder.encode("<s>")[0]
             self.end_token = subword_encoder.encode("</s>")[0]
 
         else:
-            raise Exception("Invalid seqifier type %s" % seq_type)
-
-    def tokenize_texts(self, texts):
-        tokenized = self._tokenizer_fn(texts)
-        return tokenized
-
-    def de_tokenize_texts(self, seqs, hide_eos=True):
-        for i in range(len(seqs)):
-            if hide_eos and seqs[i][0] == self.start_token:
-                seqs[i] = seqs[i][1:]
-            if hide_eos and seqs[i][-1] == self.end_token:
-                seqs[i] = seqs[i][:-1]
-        texts = self._de_tokenizer_fn(seqs)
-        return texts
+            raise Exception("Invalid tokenizer type %s" % seq_type)
