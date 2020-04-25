@@ -4,6 +4,12 @@ from sklearn.metrics.pairwise import cosine_similarity
 #Code from https://skipperkongen.dk/2018/09/19/cosine-similarity-in-python/
 def cosSim(a, b):
     #ASSUME a and b are python lists
+    if len(a) < len(b):
+        b = b[:len(a)]
+    else:
+        a = a[:len(b)]
+    if not len(a) == len(b):
+        print("cosSim on vectors of non-equal lengths")
     a = np.array(a)
     b = np.array(b)
      

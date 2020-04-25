@@ -13,10 +13,19 @@ def setup(numToTake):
     sumSnips, codeSnips = randSample(summaries, codes, numToTake)
     return sumSnips, codeSnips
 
-def randSample(summaries, codes, num):
+def altSetup(numToTake):
+    dataset = tdu.load_iyer_dataset("../../data/iyer_csharp/dev.txt", "../../data/iyer_csharp/dev_alternate_summaries.txt")
+    summaries = [ex[0] for ex in dataset]
+    codes = [ex[1] for ex in dataset]
+    alt_summaries = [ex[2][0] for ex in dataset]
+    sumSnips, codeSnips, altSnips = randSample(summaries, codes, numToTake, True, alt_summaries)
+    return sumSnips, codeSnips, altSnips
+
+def randSample(summaries, codes, num, doingAlts = False, altSums = None):
     used = []
     sumRet = []
     codRet = []
+    altRet = []
     for x in range(num):
         choice = random.randint(0, len(summaries)-1)
         #put this in just to bother you nathaniel :)
@@ -25,7 +34,12 @@ def randSample(summaries, codes, num):
         used.append(choice)
         sumRet.append(summaries[choice])
         codRet.append(codes[choice])
-    return sumRet, codRet
+        if doingAlts:
+            altRet.append(altSums[choice])
+    if doingAlts:
+        return sumRet, codRet, altRet
+    else:
+        return sumRet, codRet
 
 def shuffleQuery(q):
     q = q[3:]
@@ -54,9 +68,9 @@ def unTokenize(tokenListList):
         returner.append(temp)
     return returner
 
-def eval_ir(sums, codes, codeSnippet, codeSnippetIndex, areTokenized):
+def eval_ir(sums, codes, alts, codeSnippet, codeSnippetIndex, areTokenized):
     correct = sums[codeSnippetIndex]
-    candidate = ir(shuffleQuery(codeSnippet), sums, codes)
+    candidate = ir(alts[codeSnippetIndex], sums, codes)
     bleu = -1.0
     meteor = -1.0
     if areTokenized:
@@ -69,7 +83,7 @@ def eval_ir(sums, codes, codeSnippet, codeSnippetIndex, areTokenized):
     print("BLEU-4 SCORE: ", bleu)
     return meteor, bleu
 
-def test_ir(sums, codes, num_tests, intensify, test_num):
+def test_ir(sums, codes, num_tests, intensify, altSnips, test_num):
     assert len(sums) == len(codes)
     msum = 0
     bsum = 0
@@ -77,7 +91,7 @@ def test_ir(sums, codes, num_tests, intensify, test_num):
         if intensify:
             sums, codes = setup(test_num)
         cs = random.choice(list(range(len(codes))))
-        tmeteor, tbleu = eval_ir(sums, codes, codes[cs], cs, True)
+        tmeteor, tbleu = eval_ir(sums, codes, altSnips, codes[cs], cs, True)
         msum += tmeteor
         bsum += tbleu
     msum = msum / num_tests
@@ -85,10 +99,15 @@ def test_ir(sums, codes, num_tests, intensify, test_num):
     print("Average METEOR: ", msum)
     print("Average BLEU: ", bsum)
 
-def test_ir_iyer(num_tests, test_num, intensify):
-    sumSnips, codeSnips = setup(test_num)
+def test_ir_iyer(num_tests, test_num, intensify, doAlts):
+    if not doAlts:
+        sumSnips, codeSnips = setup(test_num)
+        altSnips = None
+    else:
+        print("this")
+        sumSnips, codeSnips, altSnips = altSetup(test_num)
     #sums, codes = tdu.trim_to_len(summaries, codess, trim_num, trim_num)
-    test_ir(sumSnips, codeSnips, num_tests, intensify, test_num)
+    test_ir(sumSnips, codeSnips, num_tests, intensify, altSnips, test_num)
 
 if __name__=="__main__":
     #download('wordnet')
@@ -100,7 +119,7 @@ if __name__=="__main__":
     do = False
     if input()=="y":
         do = True
-    test_ir_iyer(num_tests, num_snips, do)
+    test_ir_iyer(num_tests, num_snips, do, True)
         
     
 
