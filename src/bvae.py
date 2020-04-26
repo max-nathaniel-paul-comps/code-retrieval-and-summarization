@@ -70,7 +70,7 @@ class Dropout(tf.keras.layers.Layer):
     def call(self, inputs, training=False, **kwargs):
         if training:
             noise = tf.random.uniform(tf.shape(inputs), minval=0, maxval=1, dtype=tf.float32)
-            noise_ints = tf.cast(tf.greater_equal(noise, self.rate), tf.int32)
+            noise_ints = tf.cast(tf.greater_equal(noise, self.rate), tf.int64)
             outputs = inputs * noise_ints
             return outputs
         else:

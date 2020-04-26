@@ -21,11 +21,11 @@ def tf_dataset(dataset, batch_size, max_tar_len, max_inp_len, tar_tokenizer, inp
                               tf.size(inp) <= max_inp_len)
 
     dataset = tf.data.Dataset.from_generator(dataset, (tf.string, tf.string))
-    tokenized = dataset.map(tf_tokenize, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    tokenized = dataset.map(tf_tokenize)
     filtered = tokenized.filter(filter_max_length)
     shuffled = filtered.shuffle(shuffle_buffer_size, reshuffle_each_iteration=True)
     batched = shuffled.padded_batch(batch_size, ([max_tar_len], [max_inp_len]),
-                                    drop_remainder=True).prefetch(tf.data.experimental.AUTOTUNE)
+                                    drop_remainder=True).prefetch(1)
     return batched
 
 
