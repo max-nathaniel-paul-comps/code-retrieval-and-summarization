@@ -16,17 +16,23 @@ def ir(code, summaries):
     return summaries[min_dist_idx]
 
 
-def test_ir_iyer():
+def test_ir_iyer(ir_use_alt_summaries=True):
     download('wordnet')
     dataset = tdu.load_iyer_dataset("../../data/iyer_csharp/dev.txt",
                                     alternate_summaries_filename="../../data/iyer_csharp/dev_alternate_summaries.txt")
-    all_non_alt_summaries = [ex[0] for ex in dataset]
+    if ir_use_alt_summaries:
+        summaries_for_ir_to_choose_from = []
+        for ex in dataset:
+            for alt in ex[2]:
+                summaries_for_ir_to_choose_from.append(alt)
+    else:
+        summaries_for_ir_to_choose_from = [ex[0] for ex in dataset]
     refs = []
     preds = []
     meteors = []
     for i in range(len(dataset)):
         code = dataset[i][1]
-        prediction = ir(code, all_non_alt_summaries)
+        prediction = ir(code, summaries_for_ir_to_choose_from)
         alt_summaries = dataset[i][2]
         print("Code: %s" % code)
         print("True summaries: %s" % alt_summaries)
@@ -43,5 +49,15 @@ def test_ir_iyer():
     print("Corpus BLEU-4: ", bleu)
 
 
+def main():
+    ir_use_alt_summaries = input("Should IR use the alternate summaries? (yes/no) ")
+    if ir_use_alt_summaries == "yes":
+        test_ir_iyer(ir_use_alt_summaries=True)
+    elif ir_use_alt_summaries == "no":
+        test_ir_iyer(ir_use_alt_summaries=False)
+    else:
+        raise Exception("lmao")
+
+
 if __name__ == "__main__":
-    test_ir_iyer()
+    main()
