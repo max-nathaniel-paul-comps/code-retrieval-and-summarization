@@ -20,27 +20,27 @@ def test_ir_iyer(ir_use_alt_summaries=True):
     download('wordnet')
     dataset = tdu.load_iyer_dataset("../../data/iyer_csharp/dev.txt",
                                     alternate_summaries_filename="../../data/iyer_csharp/dev_alternate_summaries.txt")
+    summaries_for_ir_to_choose_from = [ex[0] for ex in dataset]
     if ir_use_alt_summaries:
-        summaries_for_ir_to_choose_from = []
         for ex in dataset:
             for alt in ex[2]:
                 summaries_for_ir_to_choose_from.append(alt)
-    else:
-        summaries_for_ir_to_choose_from = [ex[0] for ex in dataset]
     refs = []
     preds = []
     meteors = []
     for i in range(len(dataset)):
         code = dataset[i][1]
         prediction = ir(code, summaries_for_ir_to_choose_from)
-        alt_summaries = dataset[i][2]
+        true_summaries = dataset[i][2]
+        if ir_use_alt_summaries:
+            true_summaries.append(dataset[i][0])
         print("Code: %s" % code)
-        print("True summaries: %s" % alt_summaries)
+        print("True summaries: %s" % true_summaries)
         print("Predicted summary: %s" % prediction)
-        meteor = meteor_score(alt_summaries, prediction)
+        meteor = meteor_score(true_summaries, prediction)
         print("Sentence METEOR score: %.4f" % meteor)
         print()
-        refs.append(alt_summaries)
+        refs.append(true_summaries)
         preds.append(prediction)
         meteors.append(meteor)
     meteor = np.mean(meteors)
