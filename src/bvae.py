@@ -6,6 +6,7 @@ import json
 from tokenizer import Tokenizer
 import transformer
 from tf_utils import beam_search_decode, tf_dataset
+import text_data_utils as tdu
 
 
 def recon_loss_bow(true, pred_prob, vocab_size):
@@ -200,7 +201,7 @@ class RecurrentDecoder(tf.keras.Model):
         else:
             dense_outs = self.dense(latent_samples)
             return [beam_search_decode(dense_outs[i], self._single_bsd_step,
-                                       self.start_token, self.end_token)[0]
+                                       self.start_token, self.end_token, beam_width=1)[0]
                     for i in range(dense_outs.shape[0])]
 
 
@@ -468,10 +469,12 @@ class BimodalVariationalAutoEncoder(tf.Module):
         mean = latent.mean()
         tokenized = self.language_decoder(mean, training=False)
         summaries = list(map(self.language_tokenizer.de_tokenize_text, tokenized))
+        summaries = list(map(tdu.de_eof_text, summaries))
         return summaries
 
     def latent_to_codes(self, latent):
         mean = latent.mean()
         tokenized = self.source_code_decoder(mean, training=False)
         codes = list(map(self.code_tokenizer.de_tokenize_text, tokenized))
+        codes = list(map(tdu.de_eof_text, codes))
         return codes
