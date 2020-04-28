@@ -453,11 +453,11 @@ class Transformer(tf.keras.Model):
             self.train_loss.reset_states()
             self.train_accuracy.reset_states()
 
-            train_set, num_batches = dataset_to_batched_tensors(train_set, batch_size,
-                                                                self.max_output_len, self.max_input_len)
+            train_batches, num_batches = dataset_to_batched_tensors(train_set, batch_size,
+                                                                    self.max_output_len, self.max_input_len)
             batch_nums = tqdm.trange(num_batches)
             for batch_num in batch_nums:
-                tar, inp = next(train_set)
+                tar, inp = next(train_batches)
                 tar_inp = tar[:, :-1]
                 tar_out = tar[:, 1:]
                 self.train_step(inp, tar_inp, tar_out)
