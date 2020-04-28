@@ -10,7 +10,7 @@ import argparse
 
 import text_data_utils as tdu
 from tokenizer import Tokenizer
-from tf_utils import beam_search_decode, tf_dataset
+from tf_utils import beam_search_decode, dataset_to_batched_tensors
 
 
 # These functions and classes were originally created from the TensorFlow Transformer tutorial
@@ -306,31 +306,61 @@ class Decoder(tf.keras.layers.Layer):
         return x, attention_weights
 
 
+preprocessors = {
+    'csharp': tdu.preprocess_csharp_or_java,
+    'java': tdu.preprocess_csharp_or_java,
+    'javadoc': tdu.preprocess_javadoc,
+    'stackoverflow_query': tdu.preprocess_stackoverflow_summary,
+    'edinburgh_python_or_summary': tdu.preprocess_edinburgh_python_or_summary
+}
+
+
 class Transformer(tf.keras.Model):
-    def __init__(self, num_layers, d_model, num_heads, dff, input_vocab_size,
-                 target_vocab_size, pe_input, pe_target, model_path, input_tokenizer, output_tokenizer, rate=0.1,
-                 universal=True, max_input_len=40, max_output_len=40, shared_qk=False):
+    def __init__(self, model_path, tar_tok_train_texts=None, inp_tok_train_texts=None):
         super(Transformer, self).__init__()
 
-        self.max_input_len = max_input_len
-        self.max_output_len = max_output_len
+        model_path = os.path.abspath(model_path) + "/"
+        with open(model_path + "transformer_description.json") as transformer_desc_json:
+            transformer_description = json.load(transformer_desc_json)
 
-        self.input_tokenizer = input_tokenizer
-        self.output_tokenizer = output_tokenizer
+        self.output_tokenizer = Tokenizer(transformer_description['tar_tokenizer_type'],
+                                          model_path + transformer_description['tar_tokenizer_path'],
+                                          training_texts=tar_tok_train_texts,
+                                          target_vocab_size=transformer_description['tar_target_vocab_size'])
+        self.input_tokenizer = Tokenizer(transformer_description['inp_tokenizer_type'],
+                                         model_path + transformer_description['inp_tokenizer_path'],
+                                         training_texts=inp_tok_train_texts,
+                                         target_vocab_size=transformer_description['inp_target_vocab_size'])
+
+        self.tar_prep = preprocessors[transformer_description['tar_type']]
+        self.inp_prep = preprocessors[transformer_description['inp_type']]
+
+        num_layers = transformer_description['num_layers']
+        d_model = transformer_description['d_model']
+        dff = transformer_description['dff']
+        num_heads = transformer_description['num_heads']
+
+        dropout_rate = transformer_description['dropout_rate']
+
+        universal = transformer_description['universal']
+        shared_qk = transformer_description['shared_qk']
+
+        self.max_input_len = transformer_description['inp_dim']
+        self.max_output_len = transformer_description['tar_dim']
 
         self.encoder = Encoder(num_layers, d_model, num_heads, dff,
-                               input_vocab_size, pe_input, rate=rate, universal=universal,
-                               shared_qk=shared_qk)
+                               self.input_tokenizer.vocab_size, self.max_input_len, rate=dropout_rate,
+                               universal=universal, shared_qk=shared_qk)
         self.decoder = Decoder(num_layers, d_model, num_heads, dff,
-                               target_vocab_size, pe_target, rate=rate, universal=universal,
-                               shared_qk=shared_qk)
+                               self.output_tokenizer.vocab_size, self.max_output_len, rate=dropout_rate,
+                               universal=universal, shared_qk=shared_qk)
 
-        self.final_layer = tf.keras.layers.Dense(target_vocab_size)
+        self.final_layer = tf.keras.layers.Dense(self.output_tokenizer.vocab_size)
 
         learning_rate = CustomSchedule(d_model)
 
         self.optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.9, beta_2=0.98,
-                                             epsilon=1e-9)
+                                                  epsilon=1e-9)
 
         self.train_loss = tf.keras.metrics.Mean(name='train_loss')
         self.train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='train_accuracy')
@@ -359,13 +389,8 @@ class Transformer(tf.keras.Model):
 
         return final_output, attention_weights
 
-    @tf.function(input_signature=[
-        tf.TensorSpec(shape=(None, None), dtype=tf.int64),
-        tf.TensorSpec(shape=(None, None), dtype=tf.int64),
-    ])
-    def train_step(self, inp, tar):
-        tar_inp = tar[:, :-1]
-        tar_real = tar[:, 1:]
+    @tf.function
+    def train_step(self, inp, tar_inp, tar_out):
 
         enc_padding_mask, combined_mask, dec_padding_mask = create_masks(inp, tar_inp)
 
@@ -375,51 +400,50 @@ class Transformer(tf.keras.Model):
                                        enc_padding_mask,
                                        combined_mask,
                                        dec_padding_mask)
-            loss = loss_function(tar_real, predictions)
+            loss = loss_function(tar_out, predictions)
 
         gradients = tape.gradient(loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
 
         self.train_loss(loss)
-        self.train_accuracy(tar_real, predictions)
+        self.train_accuracy(tar_out, predictions)
 
-    def val_loss(self, val, num_batches):
-        val_loss = 0.0
-        val = enumerate(val)
+    def val_loss(self, dataset, batch_size=64):
+        dataset, num_batches = dataset_to_batched_tensors(dataset, batch_size, self.max_output_len, self.max_input_len)
+        loss = 0.0
         batch_nums = tqdm.trange(num_batches)
-        for _ in batch_nums:
-            (batch_num, (tar, inp)) = next(val)
+        for i in batch_nums:
+            tar, inp = next(dataset)
             tar_inp = tar[:, :-1]
-            tar_real = tar[:, 1:]
+            tar_out = tar[:, 1:]
             enc_padding_mask, combined_mask, dec_padding_mask = create_masks(inp, tar_inp)
             predictions, _ = self.call(inp, tar_inp,
                                        False,
                                        enc_padding_mask,
                                        combined_mask,
                                        dec_padding_mask)
-            loss = loss_function(tar_real, predictions)
-            if batch_num % 50 == 0:
-                batch_nums.set_description("Calculating val loss, currently {:.4f}".format(loss))
-            val_loss += loss
-        val_loss /= num_batches
-        return val_loss
+            loss += loss_function(tar_out, predictions)
+            if (i + 1) % 10 == 0:
+                current_loss = loss / (i + 1)
+                batch_nums.set_description("evaluate: loss=%.4f" % current_loss)
+        loss /= num_batches
+        return loss
 
     def train(self, train_set, val_set, batch_size=64, num_epochs=100):
 
-        train_set = tf_dataset(train_set, batch_size, self.max_output_len, self.max_input_len,
-                               self.output_tokenizer, self.input_tokenizer)
-        val_set = tf_dataset(val_set, batch_size, self.max_output_len, self.max_input_len,
-                             self.output_tokenizer, self.input_tokenizer)
+        print("Tokenizing datasets...")
+        train_set = [(self.output_tokenizer.tokenize_text(s), self.input_tokenizer.tokenize_text(c))
+                     for s, c in train_set]
+        val_set = [(self.output_tokenizer.tokenize_text(s), self.input_tokenizer.tokenize_text(c))
+                   for s, c in val_set]
 
-        print("Determining length of training set...")
-        num_train_batches = sum(1 for _ in enumerate(train_set))
-        print("Determining length of validation set...")
-        num_val_batches = sum(1 for _ in enumerate(val_set))
+        print("Removing examples that are too long...")
+        train_set = [(s, c) for s, c in train_set if len(s) <= self.max_output_len and len(c) <= self.max_input_len]
+        val_set = [(s, c) for s, c in val_set if len(s) <= self.max_output_len and len(c) <= self.max_input_len]
 
-        print("Training on %s examples, validating on %s examples." % (num_train_batches * batch_size,
-                                                                       num_val_batches * batch_size))
+        print("Training on %d examples, validating on %d examples" % (len(train_set), len(val_set)))
 
-        best_val_loss = self.val_loss(val_set, num_val_batches)
+        best_val_loss = self.val_loss(val_set, batch_size=batch_size)
         print('Initial Validation loss: {:.4f}'.format(best_val_loss))
         num_epochs_with_no_improvement = 0
 
@@ -429,17 +453,19 @@ class Transformer(tf.keras.Model):
             self.train_loss.reset_states()
             self.train_accuracy.reset_states()
 
-            # inp -> portuguese, tar -> english
-            train_batches = enumerate(train_set)
-            batch_nums = tqdm.trange(num_train_batches)
-            for _ in batch_nums:
-                batch_num, (tar, inp) = next(train_batches)
-                self.train_step(inp, tar)
+            train_set, num_batches = dataset_to_batched_tensors(train_set, batch_size,
+                                                                self.max_output_len, self.max_input_len)
+            batch_nums = tqdm.trange(num_batches)
+            for batch_num in batch_nums:
+                tar, inp = next(train_set)
+                tar_inp = tar[:, :-1]
+                tar_out = tar[:, 1:]
+                self.train_step(inp, tar_inp, tar_out)
                 if batch_num % 50 == 0:
                     batch_nums.set_description("Epoch {} of {}, Loss {:.4f}, Accuracy {:.4f}".format(
                         epoch + 1, num_epochs, self.train_loss.result(), self.train_accuracy.result()))
 
-            val_loss = self.val_loss(val_set, num_val_batches)
+            val_loss = self.val_loss(val_set, batch_size=batch_size)
             print('Validation loss: {:.4f}'.format(val_loss))
 
             if val_loss < best_val_loss:
@@ -479,7 +505,7 @@ class Transformer(tf.keras.Model):
         if len(encoder_input) > self.max_input_len:
             print("Warning: Input sentence exceeds maximum length")
         encoder_input = tf.keras.preprocessing.sequence.pad_sequences([encoder_input], maxlen=self.max_input_len,
-                                                                      dtype='int64', padding='post', value=0,
+                                                                      dtype='int32', padding='post', value=0,
                                                                       truncating='post')
 
         enc_padding_mask = create_padding_mask(encoder_input)
@@ -499,7 +525,7 @@ class Transformer(tf.keras.Model):
 
         sentence = self.input_tokenizer.tokenize_text(sentence)
         sentence = tf.keras.preprocessing.sequence.pad_sequences([sentence], maxlen=self.max_input_len,
-                                                                 dtype='int64', padding='post', value=0,
+                                                                 dtype='int32', padding='post', value=0,
                                                                  truncating='post')[0]
         inp_mask = tf.logical_not(tf.equal(sentence, 0))
         sentence_ragged = tf.ragged.boolean_mask(sentence, inp_mask)
@@ -540,6 +566,8 @@ class Transformer(tf.keras.Model):
         plt.show()
 
     def translate(self, sentence, plot=False, print_output=False):
+
+        sentence = self.inp_prep(sentence)
         result, attention_weights = self.evaluate_on_sentence(sentence, self.max_output_len)
 
         predicted_sentence = tdu.de_eof_text(self.output_tokenizer.de_tokenize_text(result))
@@ -552,6 +580,14 @@ class Transformer(tf.keras.Model):
             self.plot_attention_weights(attention_weights, sentence, result)
 
         return predicted_sentence
+
+    def interactive_demo(self):
+        while True:
+            print()
+            inp = input(">> ")
+            if inp == "exit":
+                break
+            self.translate(inp, plot=True, print_output=True)
 
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -598,85 +634,13 @@ def create_masks(inp, tar):
     return enc_padding_mask, combined_mask, dec_padding_mask
 
 
-class CodeSummarizationTransformer(object):
-    def __init__(self, model_path, code_preprocess=tdu.preprocess, train=False, train_set=None, val_set=None):
-
-        self.code_preprocess = code_preprocess
-
-        if train_set is not None:
-            train_summaries = (ex[0] for ex in train_set())
-            train_codes = (ex[1] for ex in train_set())
-        else:
-            train_summaries = None
-            train_codes = None
-
-        model_path = os.path.abspath(model_path) + "/"
-        with open(model_path + "transformer_description.json") as transformer_desc_json:
-            transformer_description = json.load(transformer_desc_json)
-
-        language_tokenizer = Tokenizer(transformer_description['language_tokenizer_type'],
-                                       model_path + transformer_description['language_tokenizer_path'],
-                                       training_texts=train_summaries,
-                                       target_vocab_size=transformer_description['language_target_vocab_size'])
-        code_tokenizer = Tokenizer(transformer_description['code_tokenizer_type'],
-                                   model_path + transformer_description['code_tokenizer_path'],
-                                   training_texts=train_codes,
-                                   target_vocab_size=transformer_description['code_target_vocab_size'])
-
-        num_layers = transformer_description['num_layers']
-        d_model = transformer_description['d_model']
-        dff = transformer_description['dff']
-        num_heads = transformer_description['num_heads']
-
-        input_vocab_size = code_tokenizer.vocab_size
-        target_vocab_size = language_tokenizer.vocab_size
-        dropout_rate = transformer_description['dropout_rate']
-
-        universal = transformer_description['universal']
-        shared_qk = transformer_description['shared_qk']
-
-        self.transformer = Transformer(num_layers, d_model, num_heads, dff,
-                                       input_vocab_size, target_vocab_size,
-                                       input_vocab_size, target_vocab_size,
-                                       model_path, code_tokenizer, language_tokenizer,
-                                       max_input_len=transformer_description['c_dim'],
-                                       max_output_len=transformer_description['l_dim'],
-                                       rate=dropout_rate, universal=universal,
-                                       shared_qk=shared_qk)
-        if train:
-            self.transformer.train(train_set, val_set)
-
-    def summarize(self, code, plot=False, print_output=False):
-        code_prepped = self.code_preprocess(code)
-        summary = self.transformer.translate(code_prepped, plot=plot, print_output=print_output)
-        return summary
-
-    def interactive_demo(self):
-        while True:
-            print()
-            code = input(">> ")
-            if code == "exit":
-                break
-            self.summarize(code, plot=True, print_output=True)
-
-
 def main():
-    parser = argparse.ArgumentParser(description="Demonstrate the code summarization abilities of the Transformer")
-    parser.add_argument("--prog_lang", help="What programming language the model is trained for."
-                                            "Used to determine input preprocessing.", required=True,
-                        choices=["csharp", "python", "java"])
+    parser = argparse.ArgumentParser(description="Demonstrate the translation abilities of the Transformer")
     parser.add_argument("--model_path", help="Path to the Transformer model", required=True)
     args = vars(parser.parse_args())
-    prog_lang = args["prog_lang"]
     model_path = args["model_path"]
-    if prog_lang == "csharp" or prog_lang == "java":
-        code_preprocess = tdu.preprocess_csharp_or_java
-    elif prog_lang == "python":
-        code_preprocess = tdu.preprocess_edinburgh_python_or_summary
-    else:
-        raise Exception()
 
-    transformer = CodeSummarizationTransformer(model_path, code_preprocess=code_preprocess, train=False)
+    transformer = Transformer(model_path)
     transformer.interactive_demo()
 
 

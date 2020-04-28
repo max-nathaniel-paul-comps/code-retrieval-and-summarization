@@ -1,11 +1,11 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
-import sys
 import os
 import json
+import tqdm
 from tokenizer import Tokenizer
 import transformer
-from tf_utils import beam_search_decode, tf_dataset
+from tf_utils import dataset_to_batched_tensors, beam_search_decode
 import text_data_utils as tdu
 
 
@@ -19,7 +19,7 @@ def recon_loss_bow(true, pred_prob, vocab_size):
     return recon
 
 
-def recon_loss(true, pred, _):
+def recon_loss_full(true, pred):
     true_slice = true[:, 1:]
     mask = tf.logical_not(tf.equal(true_slice, 0))
     recon_all = tf.nn.sparse_softmax_cross_entropy_with_logits(tf.stop_gradient(true_slice), pred)
@@ -28,15 +28,19 @@ def recon_loss(true, pred, _):
     return recon
 
 
-def preg_loss(dists_a, dists_b):
-    kl_divergence = tf.reduce_mean(
+def kld(dists_a, dists_b):
+    return tf.reduce_mean(
         tfp.distributions.kl_divergence(
             dists_a,
             dists_b
         )
     )
-    logged_kld = tf.math.log(kl_divergence + 1)
-    return logged_kld
+
+
+def preg_loss(dists_a, dists_b):
+    kld_a = kld(dists_a, dists_b)
+    kld_b = kld(dists_b, dists_a)
+    return kld_a, kld_b
 
 
 def dists_means(dists_a, dists_b):
@@ -46,14 +50,11 @@ def dists_means(dists_a, dists_b):
     return mean_dists
 
 
-def mpreg_loss(dists, mean_dist):
-    kl_divergence = tf.reduce_mean(
-        tfp.distributions.kl_divergence(
-            dists,
-            mean_dist
-        )
-    )
-    return kl_divergence
+def mpreg_loss(dists_a, dists_b):
+    mean_dists = dists_means(dists_a, dists_b)
+    kld_a = kld(dists_a, mean_dists)
+    kld_b = kld(dists_b, mean_dists)
+    return kld_a, kld_b
 
 
 def create_latent_dists(logits, latent_dim):
@@ -71,7 +72,7 @@ class Dropout(tf.keras.layers.Layer):
     def call(self, inputs, training=False, **kwargs):
         if training:
             noise = tf.random.uniform(tf.shape(inputs), minval=0, maxval=1, dtype=tf.float32)
-            noise_ints = tf.cast(tf.greater_equal(noise, self.rate), tf.int64)
+            noise_ints = tf.cast(tf.greater_equal(noise, self.rate), tf.int32)
             outputs = inputs * noise_ints
             return outputs
         else:
@@ -161,9 +162,13 @@ class MlpBowDecoder(tf.keras.models.Sequential):
             ],
             name=name
         )
+        self.vocab_size = vocab_size
 
     def call(self, inputs, training=None, **kwargs):
         return super(MlpBowDecoder, self).call(inputs, training=training)
+
+    def recon_loss(self, true, pred):
+        return recon_loss_bow(true, pred, self.vocab_size)
 
 
 class RecurrentDecoder(tf.keras.Model):
@@ -203,6 +208,9 @@ class RecurrentDecoder(tf.keras.Model):
             return [beam_search_decode(dense_outs[i], self._single_bsd_step,
                                        self.start_token, self.end_token, beam_width=1)[0]
                     for i in range(dense_outs.shape[0])]
+
+    def recon_loss(self, true, pred):
+        return recon_loss_full(true, pred)
 
 
 class TransformerDecoder(tf.keras.Model):
@@ -257,6 +265,17 @@ class TransformerDecoder(tf.keras.Model):
         else:
             return self.beam_search_decode(latent_samples)
 
+    def recon_loss(self, true, pred):
+        return recon_loss_full(true, pred)
+
+
+preprocessors = {
+    'csharp': tdu.preprocess_csharp_or_java,
+    'java': tdu.preprocess_csharp_or_java,
+    'javadoc': tdu.preprocess_javadoc,
+    'stackoverflow_query': tdu.preprocess_stackoverflow_summary,
+    'edinburgh_python_or_summary': tdu.preprocess_edinburgh_python_or_summary
+}
 
 encoders = {
     'mlp_bow': MlpBowEncoder,
@@ -274,14 +293,14 @@ optimizers = {
     'adam': tf.keras.optimizers.Adam(learning_rate=0.001)
 }
 
-recon_losses = {
-    'bow': recon_loss_bow,
-    'full': recon_loss
+kld_losses = {
+    'mpreg': mpreg_loss,
+    'preg': preg_loss
 }
 
 
 class BimodalVariationalAutoEncoder(tf.Module):
-    def __init__(self, model_path, tokenizers_training_texts=None, tf_name='bvae'):
+    def __init__(self, model_path, l_tok_training_texts=None, c_tok_training_texts=None, tf_name='bvae'):
 
         super(BimodalVariationalAutoEncoder, self).__init__(name=tf_name)
 
@@ -292,29 +311,25 @@ class BimodalVariationalAutoEncoder(tf.Module):
         with open(model_path + "model_description.json", 'r') as json_file:
             model_description = json.load(json_file)
 
-        if tokenizers_training_texts is not None:
-            tokenizer_training_summaries = (ex[0] for ex in tokenizers_training_texts())
-            tokenizer_training_codes = (ex[1] for ex in tokenizers_training_texts())
-        else:
-            tokenizer_training_summaries = None
-            tokenizer_training_codes = None
+        self.language_preprocessor = preprocessors[model_description['l_type']]
+        self.l_dim = model_description['l_dim']
+
+        self.code_preprocessor = preprocessors[model_description['c_type']]
+        self.c_dim = model_description['c_dim']
 
         self.language_tokenizer = Tokenizer(model_description['language_tokenizer_type'],
                                             model_path + model_description['language_tokenizer_path'],
-                                            training_texts=tokenizer_training_summaries,
+                                            training_texts=l_tok_training_texts,
                                             target_vocab_size=model_description['language_target_vocab_size'],
                                             vocab_min_count=model_description['language_vocab_min_count'])
         self.code_tokenizer = Tokenizer(model_description['code_tokenizer_type'],
                                         model_path + model_description['code_tokenizer_path'],
-                                        training_texts=tokenizer_training_codes,
+                                        training_texts=c_tok_training_texts,
                                         target_vocab_size=model_description['code_target_vocab_size'],
                                         vocab_min_count=model_description['code_vocab_min_count'])
 
-        self.l_dim = model_description['l_dim']
-        self.c_dim = model_description['c_dim']
-
         self.latent_dim = model_description['latent_dim']
-        self.kld_loss_type = model_description['kld_loss_type']
+        self.kld_loss = kld_losses[model_description['kld_loss_type']]
 
         self.language_encoder = encoders[model_description['l_enc_type']](
             self.latent_dim,
@@ -354,15 +369,13 @@ class BimodalVariationalAutoEncoder(tf.Module):
             name='source_code_decoder'
         )
 
-        self.language_recon_loss = recon_losses[model_description['l_recon_loss']]
-        self.source_code_recon_loss = recon_losses[model_description['c_recon_loss']]
-
         self.optimizer = optimizers[model_description['optimizer']]
 
         checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=self.optimizer, model=self)
         self.checkpoint_manager = tf.train.CheckpointManager(checkpoint, model_path + "checkpoints/", max_to_keep=3)
         checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
 
+    @tf.function
     def loss(self, summaries, codes, al=0.35, bl=0.15, ac=0.35, bc=0.15):
         enc_language_dists = self.language_encoder(summaries, training=True)
         enc_source_code_dists = self.source_code_encoder(codes, training=True)
@@ -372,93 +385,107 @@ class BimodalVariationalAutoEncoder(tf.Module):
                                              true_outputs=summaries)
         dec_source_code = self.source_code_decoder(enc_source_code, training=True,
                                                    true_outputs=codes)
-        if self.kld_loss_type == 'preg':
-            language_kld = preg_loss(enc_language_dists, enc_source_code_dists)
-            source_code_kld = preg_loss(enc_source_code_dists, enc_language_dists)
-        elif self.kld_loss_type == 'mpreg':
-            mean_dists = dists_means(enc_language_dists, enc_source_code_dists)
-            language_kld = mpreg_loss(enc_language_dists, mean_dists)
-            source_code_kld = mpreg_loss(enc_source_code_dists, mean_dists)
-        else:
-            raise Exception("Invalid KL-divergence loss: %s" % self.kld_loss_type)
-        language_recon = self.language_recon_loss(summaries, dec_language, self.language_tokenizer.vocab_size)
-        source_code_recon = self.source_code_recon_loss(codes, dec_source_code, self.code_tokenizer.vocab_size)
+        language_kld, source_code_kld = self.kld_loss(enc_language_dists, enc_source_code_dists)
+        language_recon = self.language_decoder.recon_loss(summaries, dec_language)
+        source_code_recon = self.source_code_decoder.recon_loss(codes, dec_source_code)
         final_loss = al * language_recon + bl * language_kld + ac * source_code_recon + bc * source_code_kld
         return final_loss
 
-    def training_step(self, summaries, codes, optimizer):
+    @tf.function
+    def training_step(self, summaries, codes):
         with tf.GradientTape() as tape:
             loss = self.loss(summaries,
                              codes)
         grads = tape.gradient(loss, self.trainable_variables)
-        optimizer.apply_gradients(zip(grads, self.trainable_variables))
+        grads, _ = tf.clip_by_global_norm(grads, 5.0)
+        self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
         return loss
 
-    @tf.function
-    def evaluate(self, dataset):
-        val_loss = 0.0
-        num_batches = 0
-        for summaries, codes in dataset:
-            val_loss += self.loss(summaries, codes)
-            num_batches += 1
-            if num_batches % 50 == 0:
-                tf.print("validation batch:", num_batches, "current loss:", val_loss / tf.cast(num_batches, tf.float32))
-        val_loss /= tf.cast(num_batches, tf.float32)
-        return val_loss
+    def evaluate(self, dataset, batch_size=64):
+        dataset, num_batches = dataset_to_batched_tensors(dataset, batch_size, self.l_dim, self.c_dim)
+        loss = 0.0
+        batch_nums = tqdm.trange(num_batches)
+        for i in batch_nums:
+            summaries, codes = next(dataset)
+            loss += self.loss(summaries, codes)
+            if (i + 1) % 10 == 0:
+                current_loss = loss / (i + 1)
+                batch_nums.set_description("evaluate: loss=%.4f" % current_loss)
+        loss /= num_batches
+        return loss
 
-    @tf.function
-    def train_one_epoch(self, train_set, num_batches):
-        batch_counter = 0
+    def train_one_epoch(self, train_set, batch_size=64):
+        train_set, num_batches = dataset_to_batched_tensors(train_set, batch_size, self.l_dim, self.c_dim)
         train_loss = 0.0
-        for summaries_batch, codes_batch in train_set:
-            train_loss += self.training_step(summaries_batch, codes_batch, self.optimizer)
-            batch_counter += 1
-            if batch_counter % 50 == 0:
-                tf.print("batch:", batch_counter, "/", num_batches,
-                         "current training loss:", train_loss / tf.cast(batch_counter, tf.float32))
-        train_loss /= tf.cast(batch_counter, tf.float32)
-        num_batches = batch_counter
-        return train_loss, num_batches
+        batch_nums = tqdm.trange(num_batches)
+        for i in batch_nums:
+            summaries, codes = next(train_set)
+            train_loss += self.training_step(summaries, codes)
+            if (i + 1) % 50 == 0:
+                current_loss = train_loss / (i + 1)
+                batch_nums.set_description("train: loss=%.4f" % current_loss)
+        train_loss /= num_batches
+        return train_loss
 
-    def train(self, train_set, val_set, num_epochs=100, batch_size=64, patience=6):
-        train_set = tf_dataset(train_set, batch_size, self.l_dim, self.c_dim, self.language_tokenizer,
-                               self.code_tokenizer)
-        val_set = tf_dataset(val_set, batch_size, self.l_dim, self.c_dim, self.language_tokenizer, self.code_tokenizer)
-        best_val_loss = self.evaluate(val_set)
-        tf.print("Initial validation loss:", best_val_loss, output_stream=sys.stdout)
+    def train(self, train_set, val_set, num_epochs=100, batch_size=64, patience=6, preprocessed=False):
+
+        if not preprocessed:
+            print("Preprocessing datasets...")
+            train_set = [(self.language_preprocessor(s), self.code_preprocessor(c)) for s, c in train_set]
+            val_set = [(self.language_preprocessor(s), self.code_preprocessor(c)) for s, c in val_set]
+
+        print("Tokenizing datasets...")
+        train_set = [(self.language_tokenizer.tokenize_text(s), self.code_tokenizer.tokenize_text(c))
+                     for s, c in train_set]
+        val_set = [(self.language_tokenizer.tokenize_text(s), self.code_tokenizer.tokenize_text(c))
+                   for s, c in val_set]
+
+        print("Removing examples that are too long...")
+        train_set = [(s, c) for s, c in train_set if len(s) <= self.l_dim and len(c) <= self.c_dim]
+        val_set = [(s, c) for s, c in val_set if len(s) <= self.l_dim and len(c) <= self.c_dim]
+
+        print("Training on %d examples, validating on %d examples" % (len(train_set), len(val_set)))
+
+        best_val_loss = self.evaluate(val_set, batch_size=batch_size)
+        print("Initial validation loss: %.4f" % best_val_loss)
         num_epochs_with_no_improvement = 0
-        num_batches = 0
-        for epoch in range(num_epochs):
-            train_loss, num_batches = self.train_one_epoch(train_set, num_batches)
-            val_loss = self.evaluate(val_set)
 
-            tf.print("Epoch ", epoch + 1, " of ", num_epochs, " completed, training loss: ", train_loss,
-                     ", val loss: ", val_loss, output_stream=sys.stdout)
+        for epoch in range(num_epochs):
+
+            train_loss = self.train_one_epoch(train_set, batch_size=batch_size)
+            val_loss = self.evaluate(val_set, batch_size=batch_size)
+
+            print("Epoch %d of %d completed, train_loss=%.4f, val_loss=%.4f" %
+                  (epoch + 1, num_epochs, train_loss, val_loss))
 
             if val_loss < best_val_loss:
-                tf.print("Val loss improved from ", best_val_loss, ", saving checkpoint")
+                print("Val loss improved from %.4f, saving checkpoint" % best_val_loss)
                 self.checkpoint_manager.save()
                 best_val_loss = val_loss
                 num_epochs_with_no_improvement = 0
 
             else:
-                tf.print("Val loss did not improve")
+                print("Val loss did not improve")
                 num_epochs_with_no_improvement += 1
                 if num_epochs_with_no_improvement > patience:
-                    tf.print("I ran out of patience")
+                    print("I ran out of patience")
                     break
                 if num_epochs_with_no_improvement % 2 == 0:
-                    tf.print("Decreasing learning rate by 80 percent")
+                    print("Decreasing learning rate by 80 percent")
                     self.optimizer.learning_rate.assign(self.optimizer.learning_rate * 0.2)
 
-    def summaries_to_latent(self, summaries):
+    def summaries_to_latent(self, summaries, preprocessed=False):
+        if not preprocessed:
+            summaries = list(map(self.language_preprocessor, summaries))
         tokenized = list(map(self.language_tokenizer.tokenize_text, summaries))
         padded = tf.keras.preprocessing.sequence.pad_sequences(tokenized, maxlen=self.l_dim, padding='post', value=0,
                                                                truncating='post')
         latent = self.language_encoder(padded, training=False)
         return latent
 
-    def codes_to_latent(self, codes):
+    def codes_to_latent(self, codes, preprocessed=False):
+        if not preprocessed:
+            codes = list(map(self.code_preprocessor, codes))
         tokenized = list(map(self.code_tokenizer.tokenize_text, codes))
         padded = tf.keras.preprocessing.sequence.pad_sequences(tokenized, maxlen=self.c_dim, padding='post', value=0,
                                                                truncating='post')

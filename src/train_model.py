@@ -1,7 +1,7 @@
 import argparse
 import bvae
 import text_data_utils as tdu
-from transformer import CodeSummarizationTransformer
+from transformer import Transformer
 
 
 parser = argparse.ArgumentParser(description="Train a BVAE or Transformer")
@@ -22,23 +22,26 @@ if prog_lang == "csharp":
     iyer_val = tdu.load_iyer_dataset("../data/iyer_csharp/valid.txt")
     our_train = tdu.load_csv_dataset("../data/our_csharp/train.csv")
     our_val = tdu.load_csv_dataset("../data/our_csharp/val.csv")
-    all_train = tdu.generator_from_list(list(set().union(iyer_train, our_train)))
-    all_val = tdu.generator_from_list(list(set().union(iyer_val, our_val)))
+    all_train = list(set().union(iyer_train, our_train))
+    all_val = list(set().union(iyer_val, our_val))
 elif prog_lang == "python":
-    all_train = tdu.edinburgh_dataset_as_generator("../data/edinburgh_python/data_ps.descriptions.train.txt",
-                                                   "../data/edinburgh_python/data_ps.declbodies.train.txt")
-    all_val = tdu.edinburgh_dataset_as_generator("../data/edinburgh_python/data_ps.descriptions.valid.txt",
-                                                 "../data/edinburgh_python/data_ps.declbodies.valid.txt")
+    all_train = list(tdu.edinburgh_dataset_as_generator("../data/edinburgh_python/data_ps.descriptions.train.txt",
+                                                        "../data/edinburgh_python/data_ps.declbodies.train.txt"))
+    all_val = list(tdu.edinburgh_dataset_as_generator("../data/edinburgh_python/data_ps.descriptions.valid.txt",
+                                                      "../data/edinburgh_python/data_ps.declbodies.valid.txt"))
 elif prog_lang == "java":
-    all_train = tdu.json_java_dataset_as_generator("../data/leclair_java/train.json")
-    all_val = tdu.json_java_dataset_as_generator("../data/leclair_java/val.json")
+    all_train = tdu.load_json_dataset("../data/leclair_java/train.json")
+    all_val = tdu.load_json_dataset("../data/leclair_java/val.json")
 else:
     raise Exception()
 
 if model_type == "bvae":
-    model = bvae.BimodalVariationalAutoEncoder(model_path, tokenizers_training_texts=all_train)
-    model.train(all_train, all_val, num_epochs=num_epochs)
+    model = bvae.BimodalVariationalAutoEncoder(model_path, l_tok_training_texts=[ex[0] for ex in all_train],
+                                               c_tok_training_texts=[ex[1] for ex in all_train])
+    model.train(all_train, all_val, num_epochs=num_epochs, preprocessed=True)
 elif model_type == "transformer":
-    model = CodeSummarizationTransformer(model_path, train=True, train_set=all_train, val_set=all_val)
+    model = Transformer(model_path, tar_tok_train_texts=[ex[0] for ex in all_train],
+                        inp_tok_train_texts=[ex[1] for ex in all_train])
+    model.train(all_train, all_val, num_epochs=num_epochs)
 else:
     raise Exception()

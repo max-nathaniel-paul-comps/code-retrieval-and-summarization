@@ -4,7 +4,7 @@ import text_data_utils as tdu
 import random
 import argparse
 from bvae import BimodalVariationalAutoEncoder
-from transformer import CodeSummarizationTransformer
+from transformer import Transformer
 
 
 nltk.download('wordnet')
@@ -23,10 +23,10 @@ prog_lang = args["prog_lang"]
 
 if model_type == "bvae":
     bvae = BimodalVariationalAutoEncoder(model_path)
-    summarize = lambda x: bvae.latent_to_summaries(bvae.codes_to_latent([x]))[0]
+    summarize = lambda x: bvae.latent_to_summaries(bvae.codes_to_latent([x], preprocessed=True))[0]
 elif model_type == "transformer":
-    transformer = CodeSummarizationTransformer(model_path)
-    summarize = lambda x: transformer.summarize(x)
+    transformer = Transformer(model_path)
+    summarize = lambda x: transformer.translate(x)
 else:
     raise Exception()
 
@@ -41,7 +41,7 @@ elif prog_lang == "python":
     true_summaries = [[ex[0]] for ex in dataset]
 elif prog_lang == "java":
     dataset = tdu.load_json_dataset("../data/leclair_java/test.json")
-    dataset = random.sample(dataset, 300)
+    dataset = random.sample(dataset, 2000)
     codes = [ex[1] for ex in dataset]
     true_summaries = [[ex[0]] for ex in dataset]
 else:
