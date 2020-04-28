@@ -25,7 +25,7 @@ def rephrase_question(x: str) -> str:
 def preprocess(x: str, remove_stars=False, remove_java_doc_vars=False, remove_html_tags=False, remove_comments=False,
                remove_start_and_end_quotes=False, rephrase=False, lower=False) -> str:
     if remove_java_doc_vars:
-        x = re.sub(r'(?<![{])(@.*)', ' ', x)
+        x = re.sub(r'(?<![{])(@[\s\S]*)', ' ', x)
     if remove_comments:
         x = re.sub(r'(?<![:\"])(//.*?(?:\n|\\n))', ' ', x)
     if remove_html_tags:
