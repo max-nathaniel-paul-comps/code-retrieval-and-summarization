@@ -1,6 +1,8 @@
 import cosineSim as cs
 import tfidf
 import evaluator as ev
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 import sys
 import random
 import string
@@ -9,7 +11,7 @@ import text_data_utils as tdu
 
 DEBUG_PRINT = False
 DO_SHIFTING = False
-TF_SCHEME = 0
+TF_SCHEME = 2
 NUM_TESTS = 10
 
 def topXInds(lis, x):
@@ -23,21 +25,32 @@ def retir(query, candidates, numToReturn):
     #RETURNS INDICES OF X HIGHEST CANDIDATES, where X is numToReturn.
     qTokens = tdu.tokenize_text(query)
     cTokens = tdu.tokenize_texts(candidates)
-    return retir_pt(qTokens, cTokens, numToReturn)
+    tfidfVectorizer = TfidfVectorizer(use_idf=True)
+    docs = [query]
+    for c in candidates:
+        docs.append(c)
+    vectors = tfidfVectorizer.fit_transform(docs)
+    simsWithQuery = cosine_similarity(vectors[0:1], vectors)
+    realSims = simsWithQuery[0][1:]
+    #print(realSims)
+    #print("Most similar by index:")
+    return topXInds(list(realSims), numToReturn)
+    
+    #return retir_pt(qTokens, cTokens, numToReturn)
 
-def retir_pt(query, candidates, numToReturn):
+def retir_pt(qTokens, cTokens, numToReturn):
     #pt=pre-tokenized
     #RETURNS INDICES OF X HIGHEST CANDIDATES, where X is numToReturn.
-    qTokens = query
+    #qTokens = query
     qScores = []
-    cTokens = candidates
+    #cTokens = candidates
     cScoreLists = []
     for token in qTokens:
-        qScores.append(tfidf.tfidf_pt(token, query, candidates, TF_SCHEME))
+        qScores.append(tfidf.tfidf_pt(token, qTokens, cTokens, TF_SCHEME))
     for cTokenList in range(len(cTokens)):
         temp = []
         for token in cTokens[cTokenList]:
-            temp.append(tfidf.tfidf_pt(token, candidates[cTokenList], candidates, TF_SCHEME))
+            temp.append(tfidf.tfidf_pt(token, cTokens[cTokenList], cTokens, TF_SCHEME))
         cScoreLists.append(temp)
 
     similarities = []
@@ -156,45 +169,39 @@ def runShuffleQuery(numSnips, numTimes):
         sumSnips, codeSnips = setup(numSnips)
         corInd = random.choice(range(len(codeSnips)))
         corSum = sumSnips[corInd]
-        dPrint("Original summary:")
-        dPrint(corSum)
-        dPrint("For code:")
-        dPrint(codeSnips[corInd])
+        dPrint("Original summary:\n" + corSum + "\nFor code:\n" + codeSnips[corInd])
         shuffled = shuffleQuery(corSum, chance)
         #shuffled = randCharString(len(corSum))
-        dPrint("Edited query:")
-        dPrint(shuffled)
+        dPrint("Edited query:\n" + shuffled)
         returns = retir_pt(shuffled, sumSnips, numSnips)
-        dPrint("Correct return was at rank:")
-        dPrint(returns.index(corInd))
+        dPrint("Correct return was at rank:\n" + str(returns.index(corInd)))
         listRanks.append(returns.index(corInd))
+        
         print("Finished test ", x)
     print("Final MRR for shuffle: ")
     print(ev.mrr(listRanks))
 
 def runAlternateQuery(numSnips, numTests):
     listRanks = []
+    randomRanks = []
     for x in range(numTests):
         sumSnips, codeSnips, altSnips = setupAlt(numSnips)
         corInd = random.choice(range(len(codeSnips)))
         corSum = sumSnips[corInd]
-        dPrint("Original summary:")
-        dPrint(corSum)
-        dPrint("For code:")
-        dPrint(codeSnips[corInd])
+        dPrint("Original summary:\n" + corSum + "\nFor code:\n" + codeSnips[corInd])
         altSum = altSnips[corInd][0]
         #altSum = randCharString(len(corSum))
-        dPrint("Alternate summary:")
-        dPrint(altSum)
+        dPrint("Alternate summary:\n" + altSum)
         returns = retir(altSum, sumSnips, numSnips)
-        dPrint("Correct return was at rank:")
-        dPrint(returns.index(corInd))
-        dPrint("Top result given:")
-        dPrint(sumSnips[returns[0]])
+        dPrint("Correct return was at rank:\n" + str(returns.index(corInd)) + "\nTop result given:\n" + sumSnips[returns[0]])
         listRanks.append(returns.index(corInd))
+        randomRanks.append(random.randint(0, 49))
+        #print("Correct index was " + str(corInd))
         print("Finished test ", x)
     print("Final MRR for alts: ")
     print(ev.mrr(listRanks))
+    print("Final MRR for random, by comparison:")
+    print(ev.mrr(randomRanks))
 def randCharString(length):
     returner = ""
     checker = string.ascii_letters + " </>"
@@ -217,16 +224,16 @@ if __name__=="__main__":
         testOnData()
     elif resp=="1":
         runSingleQuery()
-    elif resp=="2":
+    elif resp=="2" or resp=="3":
         print("How many snippets per test? Recommended 50")
         numSnips = int(input())
         print("How many tests to run?")
         numTests = int(input())
-        runShuffleQuery(numSnips, numTests)
+        if resp=="2":
+            runShuffleQuery(numSnips, numTests)
+        else:
+            runAlternateQuery(numSnips, numTests)
     else:
-        print("How many snippets per test? Recommended 50")
-        numSnips = int(input())
-        print("How many tests to run?")
-        numTests = int(input())
-        runAlternateQuery(numSnips, numTests)
+        print("INVALID INPUT")
+        
         

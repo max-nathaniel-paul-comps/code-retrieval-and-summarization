@@ -3,16 +3,13 @@ import re
 import sys
 sys.path.append('../../src')
 import text_data_utils as tdu
-
-def termFrequency(term, doc, scheme):
-    #Simple count
-    words = tdu.tokenize_texts(doc)
-    return termFrequency_pt(term, words, scheme)
     
 
-def termFrequency_pt(term, doc_pt, scheme):
+def termFrequency(term, doc_pt, scheme, needsTokenizing=False):
     #pt=pre-tokenized
     #Simple count
+    if needsTokenizing:
+        doc_pt = tdu.tokenize_texts(doc_pt)
     termCount = countInDoc(term, doc_pt)
     if scheme==0:
         return termCount
@@ -56,7 +53,7 @@ def inverseDocFrequency(term, docs):
         spl = tdu.tokenize_text(d)
         if countInDoc(term, spl) > 0:
             denom += 1
-    return N/denom
+    return 1.0 + math.log(float(N/denom))
 
 def inverseDocFrequency_pt(term, docs):
     N = len(docs)
@@ -64,14 +61,14 @@ def inverseDocFrequency_pt(term, docs):
     for d in docs:
         if countInDoc(term, d) > 0:
             denom += 1
-    return N/denom
+    return 1.0 + math.log(float(N/denom))
 
 def tfidf(term, doc, docs, scheme):
-    return termFrequency(term, doc, scheme) * inverseDocFrequency(term, docs)
+    return termFrequency(term, doc, scheme, True) * inverseDocFrequency(term, docs)
 
 def tfidf_pt(term, doc, docs, scheme):
     #so this assumes that doc and each d in docs area already token lists
-    return termFrequency_pt(term, doc, scheme) * inverseDocFrequency_pt(term, docs)
+    return termFrequency(term, doc, scheme) * inverseDocFrequency_pt(term, docs)
 
 if __name__=="__main__":
     print("TFIDF test stuff running")
@@ -82,4 +79,4 @@ if __name__=="__main__":
     docs = [s,a,b,c]
     print("term freq: " + str(termFrequency("word", s, 0)))
     print("idf: " + str(inverseDocFrequency("word", docs)))
-    print("ok, here's tfidf: " + str(tfidf("word", s, docs, 0)))
+    print("tfidf: " + str(tfidf("word", s, docs, 0)))
