@@ -105,7 +105,7 @@ def main():
                                                      "evaluation method is chosen.",
                         default=50)
     parser.add_argument("--compare_ret_ir", help="Whether to compare RET-IR to the BVAE and random guess",
-                        choices=[0, 1], default=0)
+                        choices=[0, 1], default=0, type=int)
     args = vars(parser.parse_args())
     prog_lang = args["prog_lang"]
     bvae_model_path = args["bvae_model_path"]

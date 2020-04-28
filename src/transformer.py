@@ -316,7 +316,8 @@ preprocessors = {
 
 
 class Transformer(tf.keras.Model):
-    def __init__(self, model_path, tar_tok_train_texts=None, inp_tok_train_texts=None):
+    def __init__(self, model_path, train_set=None, val_set=None, num_train_epochs=0, train_batch_size=64,
+                 sets_preprocessed=False):
         super(Transformer, self).__init__()
 
         model_path = os.path.abspath(model_path) + "/"
@@ -325,11 +326,13 @@ class Transformer(tf.keras.Model):
 
         self.output_tokenizer = Tokenizer(transformer_description['tar_tokenizer_type'],
                                           model_path + transformer_description['tar_tokenizer_path'],
-                                          training_texts=tar_tok_train_texts,
+                                          training_texts=([ex[0] for ex in train_set] if train_set is not None
+                                                          else None),
                                           target_vocab_size=transformer_description['tar_target_vocab_size'])
         self.input_tokenizer = Tokenizer(transformer_description['inp_tokenizer_type'],
                                          model_path + transformer_description['inp_tokenizer_path'],
-                                         training_texts=inp_tok_train_texts,
+                                         training_texts=([ex[1] for ex in train_set] if train_set is not None
+                                                         else None),
                                          target_vocab_size=transformer_description['inp_target_vocab_size'])
 
         self.tar_prep = preprocessors[transformer_description['tar_type']]
@@ -376,6 +379,10 @@ class Transformer(tf.keras.Model):
         if self.ckpt_manager.latest_checkpoint:
             ckpt.restore(self.ckpt_manager.latest_checkpoint)
             print('Latest checkpoint restored!!')
+
+        if num_train_epochs > 0:
+            self.train(train_set, val_set, batch_size=train_batch_size, num_epochs=num_train_epochs,
+                       sets_preprocessed=sets_preprocessed)
 
     def call(self, inp, tar, training, enc_padding_mask,
              look_ahead_mask, dec_padding_mask):
@@ -429,7 +436,12 @@ class Transformer(tf.keras.Model):
         loss /= num_batches
         return loss
 
-    def train(self, train_set, val_set, batch_size=64, num_epochs=100):
+    def train(self, train_set, val_set, batch_size=64, num_epochs=100, sets_preprocessed=False):
+
+        if not sets_preprocessed:
+            print("Preprocessing datasets...")
+            train_set = [(self.tar_prep(s), self.inp_prep(c)) for s, c in train_set]
+            val_set = [(self.tar_prep(s), self.inp_prep(c)) for s, c in val_set]
 
         print("Tokenizing datasets...")
         train_set = [(self.output_tokenizer.tokenize_text(s), self.input_tokenizer.tokenize_text(c))

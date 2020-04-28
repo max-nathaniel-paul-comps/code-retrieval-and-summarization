@@ -25,7 +25,7 @@ def rephrase_question(x: str) -> str:
 def preprocess(x: str, remove_stars=False, remove_java_doc_vars=False, remove_html_tags=False, remove_comments=False,
                remove_start_and_end_quotes=False, rephrase=False, lower=False) -> str:
     if remove_java_doc_vars:
-        x = re.sub(r'(@.*)', ' ', x)
+        x = re.sub(r'(?<![{])(@.*)', ' ', x)
     if remove_comments:
         x = re.sub(r'(?<![:\"])(//.*?(?:\n|\\n))', ' ', x)
     if remove_html_tags:
@@ -39,6 +39,10 @@ def preprocess(x: str, remove_stars=False, remove_java_doc_vars=False, remove_ht
             x = x[len('\''):]
         if x.endswith('\''):
             x = x[:-len('\'')]
+        if x.startswith('"'):
+            x = x[len('"'):]
+        if x.endswith('"'):
+            x = x[:-len('"')]
     x = x.strip()
     x = re.sub(r'(\s\s+)', ' ', x)
     if rephrase:
@@ -49,7 +53,7 @@ def preprocess(x: str, remove_stars=False, remove_java_doc_vars=False, remove_ht
 
 
 def preprocess_csharp_or_java(x: str) -> str:
-    return preprocess(x, remove_comments=True)
+    return preprocess(x, remove_comments=True, remove_start_and_end_quotes=True)
 
 
 def preprocess_javadoc(x: str) -> str:
@@ -57,7 +61,7 @@ def preprocess_javadoc(x: str) -> str:
 
 
 def preprocess_stackoverflow_summary(x: str) -> str:
-    return preprocess(x, rephrase=True, remove_html_tags=True, lower=True)
+    return preprocess(x, rephrase=True, remove_html_tags=True, lower=True, remove_start_and_end_quotes=True)
 
 
 def preprocess_edinburgh_python_or_summary(x: str) -> str:

@@ -300,7 +300,8 @@ kld_losses = {
 
 
 class BimodalVariationalAutoEncoder(tf.Module):
-    def __init__(self, model_path, l_tok_training_texts=None, c_tok_training_texts=None, tf_name='bvae'):
+    def __init__(self, model_path, train_set=None, val_set=None, num_train_epochs=0, train_batch_size=64,
+                 sets_preprocessed=False, tf_name='bvae'):
 
         super(BimodalVariationalAutoEncoder, self).__init__(name=tf_name)
 
@@ -319,12 +320,14 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
         self.language_tokenizer = Tokenizer(model_description['language_tokenizer_type'],
                                             model_path + model_description['language_tokenizer_path'],
-                                            training_texts=l_tok_training_texts,
+                                            training_texts=([ex[0] for ex in train_set] if train_set is not None
+                                                            else None),
                                             target_vocab_size=model_description['language_target_vocab_size'],
                                             vocab_min_count=model_description['language_vocab_min_count'])
         self.code_tokenizer = Tokenizer(model_description['code_tokenizer_type'],
                                         model_path + model_description['code_tokenizer_path'],
-                                        training_texts=c_tok_training_texts,
+                                        training_texts=([ex[1] for ex in train_set] if train_set is not None
+                                                        else None),
                                         target_vocab_size=model_description['code_target_vocab_size'],
                                         vocab_min_count=model_description['code_vocab_min_count'])
 
@@ -373,7 +376,13 @@ class BimodalVariationalAutoEncoder(tf.Module):
 
         checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=self.optimizer, model=self)
         self.checkpoint_manager = tf.train.CheckpointManager(checkpoint, model_path + "checkpoints/", max_to_keep=3)
-        checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
+        if self.checkpoint_manager.latest_checkpoint:
+            checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
+            print('Latest checkpoint restored!!')
+
+        if num_train_epochs > 0:
+            self.train(train_set, val_set, num_epochs=num_train_epochs, batch_size=train_batch_size,
+                       preprocessed=sets_preprocessed)
 
     @tf.function
     def loss(self, summaries, codes, al=0.35, bl=0.15, ac=0.35, bc=0.15):
@@ -441,10 +450,16 @@ class BimodalVariationalAutoEncoder(tf.Module):
                    for s, c in val_set]
 
         print("Removing examples that are too long...")
+        num_train_before = len(train_set)
         train_set = [(s, c) for s, c in train_set if len(s) <= self.l_dim and len(c) <= self.c_dim]
+        num_train = len(train_set)
+        num_val_before = len(val_set)
         val_set = [(s, c) for s, c in val_set if len(s) <= self.l_dim and len(c) <= self.c_dim]
+        num_val = len(val_set)
+        print("%d training examples and %d val examples were left out" %
+              (num_train_before - num_train, num_val_before - num_val))
 
-        print("Training on %d examples, validating on %d examples" % (len(train_set), len(val_set)))
+        print("Training on %d examples, validating on %d examples" % (num_train, num_val))
 
         best_val_loss = self.evaluate(val_set, batch_size=batch_size)
         print("Initial validation loss: %.4f" % best_val_loss)

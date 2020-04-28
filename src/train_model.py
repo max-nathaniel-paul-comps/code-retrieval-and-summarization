@@ -36,12 +36,10 @@ else:
     raise Exception()
 
 if model_type == "bvae":
-    model = bvae.BimodalVariationalAutoEncoder(model_path, l_tok_training_texts=[ex[0] for ex in all_train],
-                                               c_tok_training_texts=[ex[1] for ex in all_train])
-    model.train(all_train, all_val, num_epochs=num_epochs, preprocessed=True)
+    model = bvae.BimodalVariationalAutoEncoder(model_path, train_set=all_train, val_set=all_val,
+                                               num_train_epochs=num_epochs, sets_preprocessed=True)
 elif model_type == "transformer":
-    model = Transformer(model_path, tar_tok_train_texts=[ex[0] for ex in all_train],
-                        inp_tok_train_texts=[ex[1] for ex in all_train])
-    model.train(all_train, all_val, num_epochs=num_epochs)
+    model = Transformer(model_path, train_set=all_train, val_set=all_val, num_train_epochs=num_epochs,
+                        sets_preprocessed=True)
 else:
     raise Exception()
