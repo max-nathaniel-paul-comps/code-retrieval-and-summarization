@@ -100,10 +100,10 @@ def main():
                         default="random_samples")
     parser.add_argument("--num_random_samples", help="Number of random samples to take. Only valid if `random_samples`"
                                                      "evaluation method is chosen.",
-                        default=10000)
+                        default=10000, type=int)
     parser.add_argument("--random_sample_size", help="Size of random samples to take. Only valid if `random_samples`"
                                                      "evaluation method is chosen.",
-                        default=50)
+                        default=50, type=int)
     parser.add_argument("--compare_ret_ir", help="Whether to compare RET-IR to the BVAE and random guess",
                         choices=[0, 1], default=0, type=int)
     args = vars(parser.parse_args())
@@ -137,10 +137,10 @@ def main():
     else:
         raise Exception()
 
-    print("Random Choice Mean Reciprocal Rank: %s" % random_mrr)
+    print("Random Choice Mean Reciprocal Rank: %.4f" % random_mrr)
     if compare_ret_ir:
-        print("RET-IR Mean Reciprocal Rank: %s" % ret_ir_mrr)
-    print("BVAE Mean Reciprocal Rank: %s" % bvae_mrr)
+        print("RET-IR Mean Reciprocal Rank: %.4f" % ret_ir_mrr)
+    print("BVAE Mean Reciprocal Rank: %.4f" % bvae_mrr)
 
 
 if __name__ == "__main__":
