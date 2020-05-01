@@ -5,7 +5,7 @@ import json
 import tqdm
 from tokenizer import Tokenizer
 import transformer
-from tf_utils import dataset_to_batched_tensors, beam_search_decode
+from tf_utils import dataset_to_batched_tensors, beam_search_decode, beam_search_decode_new
 import text_data_utils as tdu
 
 
@@ -194,17 +194,19 @@ class RecurrentDecoder(tf.keras.Model):
         predicts = self.dense_2(gru_out)
         return predicts
 
-    def _single_bsd_step(self, predicted_so_far, state):
-        predicted_embedded = self.embedding(tf.expand_dims(tf.expand_dims(predicted_so_far[-1], 0), 0))
-        output, new_state = self.gru.cell(predicted_embedded, tf.expand_dims(tf.expand_dims(state, 0), 0))
-        final = tf.nn.softmax(self.dense_2(output)[0][0], axis=-1)
-        return final, new_state[0][0][0]
+    def _single_bsd_step(self, preds_so_far, states):
+        predicted_embedded = self.embedding(preds_so_far[:, :, -1])
+        outputs, new_states = self.gru.cell(predicted_embedded, states)
+        final = tf.nn.softmax(self.dense_2(outputs), axis=-1)
+        return final, new_states[0]
 
     def call(self, latent_samples, true_outputs=None, training=False, **kwargs):
         if true_outputs is not None:
             return self.teacher_forcing_decode(latent_samples, true_outputs, training=training)
         else:
             dense_outs = self.dense(latent_samples)
+            return beam_search_decode_new(dense_outs, self._single_bsd_step, self.start_token, self.end_token,
+                                          beam_width=1)
             return [beam_search_decode(dense_outs[i], self._single_bsd_step,
                                        self.start_token, self.end_token, beam_width=1)[0]
                     for i in range(dense_outs.shape[0])]
