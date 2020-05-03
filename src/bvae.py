@@ -195,20 +195,10 @@ class RecurrentDecoder(tf.keras.Model):
         return predicts
 
     def _single_bsd_step(self, preds_so_far, states):
-        num_examples = tf.shape(preds_so_far)[0]
         predicted_embedded = self.embedding(preds_so_far[:, :, -1])
-        outputs = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-        new_states = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-        for example_num in tf.range(num_examples):
-            out, state = self.gru.cell(predicted_embedded[example_num], tf.expand_dims(states[example_num], 0))
-            '''out_real = out[0, :, :]
-            state_real = state[0][0, :, :]'''
-            outputs = outputs.write(example_num, out)
-            new_states = new_states.write(example_num, state[0])
-        outputs_tensor = outputs.stack()
-        states_tensor = new_states.stack()
-        final = tf.nn.softmax(self.dense_2(outputs_tensor), axis=-1)
-        return final, states_tensor
+        out, new_states = self.gru.cell(predicted_embedded, tf.expand_dims(states, 0))
+        final = tf.nn.softmax(self.dense_2(out), axis=-1)
+        return final, new_states[0]
 
     def call(self, latent_samples, true_outputs=None, training=False, **kwargs):
         if true_outputs is not None:
@@ -216,7 +206,7 @@ class RecurrentDecoder(tf.keras.Model):
         else:
             dense_outs = self.dense(latent_samples)
             return beam_search_decode_new(dense_outs, self._single_bsd_step, self.start_token, self.end_token,
-                                          beam_width=10)
+                                          beam_width=1)
 
     def recon_loss(self, true, pred):
         return recon_loss_full(true, pred)

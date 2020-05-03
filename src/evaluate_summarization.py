@@ -3,6 +3,7 @@ import numpy as np
 import text_data_utils as tdu
 import random
 import argparse
+import tqdm
 from bvae import BimodalVariationalAutoEncoder
 from transformer import Transformer
 
@@ -15,18 +16,20 @@ parser.add_argument("--prog_lang", help="What programming language to evaluate t
 parser.add_argument("--model_type", help="What kind of model you want to evaluate", choices=["bvae", "transformer"],
                     required=True)
 parser.add_argument("--model_path", help="Path to the model", required=True)
+parser.add_argument("--batch_size", help="Size of batches to feed into the model", type=int, default=64)
 args = vars(parser.parse_args())
 
 model_type = args["model_type"]
 model_path = args["model_path"]
 prog_lang = args["prog_lang"]
+batch_size = args["batch_size"]
 
 if model_type == "bvae":
     bvae = BimodalVariationalAutoEncoder(model_path)
     summarize = lambda x: bvae.latent_to_summaries(bvae.codes_to_latent(x, preprocessed=True))
 elif model_type == "transformer":
     transformer = Transformer(model_path)
-    summarize = lambda x: transformer.translate(x)
+    summarize = lambda x: transformer.translate_batches(x)
 else:
     raise Exception()
 
@@ -47,7 +50,12 @@ elif prog_lang == "java":
 else:
     raise Exception()
 
-predicts = summarize(codes)
+num_batches = int((len(codes) / batch_size) + 1)
+predicts = []
+for batch_num in tqdm.trange(num_batches):
+    codes_batch = codes[batch_num * batch_size: batch_num * batch_size + batch_size]
+    predicts_batch = summarize(codes_batch)
+    predicts.extend(predicts_batch)
 
 meteors = []
 for i in range(len(dataset)):
