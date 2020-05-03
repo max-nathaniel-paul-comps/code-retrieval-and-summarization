@@ -46,7 +46,6 @@ elif prog_lang == "python":
     true_summaries = [[ex[0]] for ex in dataset]
 elif prog_lang == "java":
     dataset = tdu.load_json_dataset("../data/leclair_java/test.json")
-    dataset = random.sample(dataset, 2000)
     codes = [ex[1] for ex in dataset]
     true_summaries = [[ex[0]] for ex in dataset]
 else:
