@@ -72,14 +72,18 @@ def beam_search_decode_new(initial_states, single_bsd_step, start_token, end_tok
                            size_of_batch, axis=0)
 
     first_iteration = True
-    for _ in tf.range(0, limit=max_len, delta=1):
+    for step in tf.range(0, limit=max_len, delta=1):
 
         all_end_tokens = tf.equal(beam_preds, end_token)
         already_finished_beams = tf.reduce_any(all_end_tokens, axis=-1)
         if tf.reduce_all(already_finished_beams):
             break
 
-        pred_probs, new_beam_states = single_bsd_step(beam_preds, beam_states)
+        flat_beam_preds = tf.reshape(beam_preds, (size_of_batch * beam_width, -1))
+        flat_beam_states = tf.reshape(beam_states, (size_of_batch * beam_width, -1))
+        flat_pred_probs, flat_new_beam_states = single_bsd_step(flat_beam_preds, flat_beam_states)
+        pred_probs = tf.reshape(flat_pred_probs, (size_of_batch, beam_width, -1))
+        new_beam_states = tf.reshape(flat_new_beam_states, (size_of_batch, beam_width, -1))
 
         vocab_size = tf.shape(pred_probs)[-1]
         expanded_old_perps = tf.repeat(tf.expand_dims(beam_perps, -1), vocab_size, axis=-1)

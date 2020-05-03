@@ -195,18 +195,18 @@ class RecurrentDecoder(tf.keras.Model):
         return predicts
 
     def _single_bsd_step(self, preds_so_far, states):
-        predicted_embedded = self.embedding(preds_so_far[:, :, -1])
+        predicted_embedded = self.embedding(preds_so_far[:, -1])
         out, new_states = self.gru.cell(predicted_embedded, tf.expand_dims(states, 0))
-        final = tf.nn.softmax(self.dense_2(out), axis=-1)
+        final = tf.nn.softmax(self.dense_2.layer(out), axis=-1)
         return final, new_states[0]
 
-    def call(self, latent_samples, true_outputs=None, training=False, **kwargs):
+    def call(self, latent_samples, true_outputs=None, training=False, beam_width=1, **kwargs):
         if true_outputs is not None:
             return self.teacher_forcing_decode(latent_samples, true_outputs, training=training)
         else:
             dense_outs = self.dense(latent_samples)
             return beam_search_decode_new(dense_outs, self._single_bsd_step, self.start_token, self.end_token,
-                                          beam_width=1)
+                                          beam_width=beam_width)
 
     def recon_loss(self, true, pred):
         return recon_loss_full(true, pred)
@@ -506,16 +506,16 @@ class BimodalVariationalAutoEncoder(tf.Module):
         latent = self.source_code_encoder(padded, training=False)
         return latent
 
-    def latent_to_summaries(self, latent):
+    def latent_to_summaries(self, latent, beam_width=1):
         mean = latent.mean()
-        tokenized = self.language_decoder(mean, training=False)
+        tokenized = self.language_decoder(mean, training=False, beam_width=beam_width)
         summaries = list(map(self.language_tokenizer.de_tokenize_text, tokenized))
         summaries = list(map(tdu.de_eof_text, summaries))
         return summaries
 
-    def latent_to_codes(self, latent):
+    def latent_to_codes(self, latent, beam_width=1):
         mean = latent.mean()
-        tokenized = self.source_code_decoder(mean, training=False)
+        tokenized = self.source_code_decoder(mean, training=False, beam_width=beam_width)
         codes = list(map(self.code_tokenizer.de_tokenize_text, tokenized))
         codes = list(map(tdu.de_eof_text, codes))
         return codes

@@ -10,7 +10,7 @@ import argparse
 
 import text_data_utils as tdu
 from tokenizer import Tokenizer
-from tf_utils import beam_search_decode, dataset_to_batched_tensors
+from tf_utils import beam_search_decode, beam_search_decode_new, dataset_to_batched_tensors
 
 
 # These functions and classes were originally created from the TensorFlow Transformer tutorial
@@ -592,6 +592,43 @@ class Transformer(tf.keras.Model):
             self.plot_attention_weights(attention_weights, sentence, result)
 
         return predicted_sentence
+
+    def translate_batch(self, sentences, preprocessed=False, beam_width=1):
+        num_examples = len(sentences)
+        if not preprocessed:
+            sentences = map(self.inp_prep, sentences)
+        encoder_inputs = list(map(self.input_tokenizer.tokenize_text, sentences))
+        encoder_inputs = tf.keras.preprocessing.sequence.pad_sequences(encoder_inputs, maxlen=self.max_input_len,
+                                                                       dtype='int32', padding='post', value=0,
+                                                                       truncating='post')
+
+        enc_padding_mask = create_padding_mask(encoder_inputs)
+        enc_outputs = self.encoder(encoder_inputs, False, enc_padding_mask)  # (batch_size, inp_seq_len, d_model)
+
+        expanded_enc_inputs = tf.repeat(tf.expand_dims(encoder_inputs, 1), beam_width, axis=1)
+        expanded_enc_outputs = tf.repeat(tf.expand_dims(enc_outputs, 1), beam_width, axis=1)
+        flat_enc_inputs = tf.reshape(expanded_enc_inputs, (num_examples * beam_width,
+                                                           self.max_input_len))
+        flat_enc_outputs = tf.reshape(expanded_enc_outputs, (num_examples * beam_width,
+                                                             self.max_input_len, -1))
+
+        def single_bsd_step(tar, state):
+            _, combined_mask, dec_padding_mask = create_masks(flat_enc_inputs, tar)
+            # dec_output.shape == (batch_size, tar_seq_len, d_model)
+            dec_output, attention_weights = self.decoder(tar, flat_enc_outputs, False, combined_mask,
+                                                         dec_padding_mask)
+            final_output = self.final_layer(dec_output)
+            really_final = tf.nn.softmax(final_output[:, -1, :])
+            return really_final, state
+
+        nothing = tf.zeros(tf.shape(sentences)[0], 1)
+        dec_outputs = beam_search_decode_new(nothing, single_bsd_step, self.output_tokenizer.start_token,
+                                             self.output_tokenizer.end_token, beam_width=1, max_len=self.max_output_len)
+
+        de_tokenized = map(self.output_tokenizer.de_tokenize_text, dec_outputs)
+        final = map(tdu.de_eof_text, de_tokenized)
+
+        return final
 
     def interactive_demo(self):
         while True:

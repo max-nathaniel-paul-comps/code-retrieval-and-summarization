@@ -17,19 +17,21 @@ parser.add_argument("--model_type", help="What kind of model you want to evaluat
                     required=True)
 parser.add_argument("--model_path", help="Path to the model", required=True)
 parser.add_argument("--batch_size", help="Size of batches to feed into the model", type=int, default=64)
+parser.add_argument("--beam_width", help="Beam width to use for beam search decoding", type=int, default=1)
 args = vars(parser.parse_args())
 
 model_type = args["model_type"]
 model_path = args["model_path"]
 prog_lang = args["prog_lang"]
 batch_size = args["batch_size"]
+beam_width = args["beam_width"]
 
 if model_type == "bvae":
     bvae = BimodalVariationalAutoEncoder(model_path)
-    summarize = lambda x: bvae.latent_to_summaries(bvae.codes_to_latent(x, preprocessed=True))
+    summarize = lambda x: bvae.latent_to_summaries(bvae.codes_to_latent(x, preprocessed=True), beam_width=beam_width)
 elif model_type == "transformer":
     transformer = Transformer(model_path)
-    summarize = lambda x: transformer.translate_batches(x)
+    summarize = lambda x: transformer.translate_batch(x, preprocessed=True, beam_width=beam_width)
 else:
     raise Exception()
 
