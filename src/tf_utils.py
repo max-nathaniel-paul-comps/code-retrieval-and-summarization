@@ -54,7 +54,7 @@ def beam_search_decode_new(initial_states, single_bsd_step, start_token, end_tok
     Beam search decoder
 
     :param initial_states: shape (num_to_decode, arbitrary...)
-    :param single_bsd_step: a function that takes in the current set of predictions, of shape (size_of_batch, beam_width, step), along with the current state, of shape (size_of_batch, beam_width, arbitrary...), and returns predictions for the next token, of shape (size_of_batch, beam_width, vocab_size), and the new state, of shape (size_of_batch, beam_width, arbitrary...). The state is not modified by beam_search_decode, and is passed along to the next call of single_bsd_step. It can be used for a recurrent cell's state, for example.
+    :param single_bsd_step: a function that takes in the current set of predictions, of shape (size_of_batch * beam_width, step), along with the current state, of shape (size_of_batch * beam_width, arbitrary...), and returns predictions for the next token, of shape (size_of_batch * beam_width, vocab_size), and the new state, of shape (size_of_batch * beam_width, arbitrary...). The state is not modified by beam_search_decode, and is passed along to the next call of single_bsd_step. It can be used for a recurrent cell's state, for example.
     :param start_token: the tokenizer's start token
     :param end_token: the tokenizer's end token
     :param beam_width: the number of beams to keep at each step

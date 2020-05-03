@@ -623,7 +623,8 @@ class Transformer(tf.keras.Model):
 
         nothing = tf.zeros(tf.shape(sentences)[0], 1)
         dec_outputs = beam_search_decode_new(nothing, single_bsd_step, self.output_tokenizer.start_token,
-                                             self.output_tokenizer.end_token, beam_width=1, max_len=self.max_output_len)
+                                             self.output_tokenizer.end_token, beam_width=beam_width,
+                                             max_len=self.max_output_len)
 
         de_tokenized = map(self.output_tokenizer.de_tokenize_text, dec_outputs)
         final = map(tdu.de_eof_text, de_tokenized)
