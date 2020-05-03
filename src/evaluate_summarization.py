@@ -23,7 +23,7 @@ prog_lang = args["prog_lang"]
 
 if model_type == "bvae":
     bvae = BimodalVariationalAutoEncoder(model_path)
-    summarize = lambda x: bvae.latent_to_summaries(bvae.codes_to_latent([x], preprocessed=True))[0]
+    summarize = lambda x: bvae.latent_to_summaries(bvae.codes_to_latent(x, preprocessed=True))
 elif model_type == "transformer":
     transformer = Transformer(model_path)
     summarize = lambda x: transformer.translate(x)
@@ -47,16 +47,15 @@ elif prog_lang == "java":
 else:
     raise Exception()
 
+predicts = summarize(codes)
+
 meteors = []
-predicts = []
 for i in range(len(dataset)):
     print("%d of %d" % (i, len(dataset)))
     print("Code: %s" % codes[i])
     print("True Summaries: %s" % true_summaries[i])
-    predicted = summarize(codes[i])
-    print("%s Predicted Summary: %s" % (model_type, predicted))
-    predicts.append(predicted)
-    meteor = nltk.translate.meteor_score.meteor_score(true_summaries[i], predicted)
+    print("%s Predicted Summary: %s" % (model_type, predicts[i]))
+    meteor = nltk.translate.meteor_score.meteor_score(true_summaries[i], predicts[i])
     print("%s METEOR score: %.4f" % (model_type, meteor))
     meteors.append(meteor)
     print()

@@ -1,6 +1,6 @@
 import random
-import numpy as np
 import tensorflow as tf
+import tqdm
 
 
 def dataset_to_batched_tensors(dataset, batch_size, tar_dim, inp_dim):
@@ -26,79 +26,37 @@ def dataset_to_batched_tensors(dataset, batch_size, tar_dim, inp_dim):
     return generator(), num_batches
 
 
-def top_k_preds(pred_perps, allow_duplication):
+def top_k_preds(pred_perps, first_iteration):
+
     shape = tf.shape(pred_perps)
     batch_size = shape[0]
     beam_width = shape[1]
-    sorted_tokens = tf.argsort(pred_perps, axis=-1)
-    batch_of_best_perp_indices = []
-    batch_of_best_perps = []
-    for i in tf.range(0, limit=batch_size, delta=1):
-        best_perps = []
-        best_perp_indices = []
-        taken_tokens = []
-        for j in tf.range(0, limit=beam_width, delta=1):
-            for k in tf.range(0, limit=beam_width, delta=1):
-                token_idx = sorted_tokens[i][j][k]
-                if allow_duplication or token_idx not in taken_tokens:
-                    pred_perp = pred_perps[i][j][token_idx]
-                    indices = [i, j, token_idx]
-                    if len(best_perps) < beam_width:
-                        best_perps.append(pred_perp)
-                        best_perp_indices.append(indices)
-                        taken_tokens.append(token_idx)
-                    else:
-                        worst_best = int(np.argmax(best_perps))
-                        if pred_perp < best_perps[worst_best]:
-                            best_perps[worst_best] = pred_perp
-                            best_perp_indices[worst_best] = indices
-                            taken_tokens.append(token_idx)
-        vals, indices = tf.math.top_k(-tf.convert_to_tensor(best_perps), k=beam_width)
-        best_perp_indices = tf.gather(best_perp_indices, indices)
-        best_perps = -vals
-        batch_of_best_perp_indices.append(best_perp_indices)
-        batch_of_best_perps.append(best_perps)
-    preds_tensor = tf.convert_to_tensor(batch_of_best_perp_indices)
-    perps_tensor = tf.convert_to_tensor(batch_of_best_perps)
-    return preds_tensor, perps_tensor
+    vocab_size = shape[2]
 
+    if first_iteration:
+        pred_perps = tf.expand_dims(pred_perps[:, 0, :], 1)
 
-def update_beams(beam_preds, top_k_pred_indices, conditional_pred_perps, new_beam_states):
-    batch_of_new_states = []
-    batch_of_new_preds = []
-    batch_of_new_perps = []
-    for batch in top_k_pred_indices:
-        new_states = []
-        new_preds = []
-        new_perps = []
-        for indices in batch:
-            x = indices[0]
-            y = indices[1]
-            z = indices[2]
-            new_states.append(new_beam_states[x][y])
-            new_preds.append(z)
-            new_perps.append(conditional_pred_perps[x][y][z])
-        batch_of_new_states.append(new_states)
-        batch_of_new_preds.append(new_preds)
-        batch_of_new_perps.append(new_perps)
-    new_states_tensor = tf.convert_to_tensor(batch_of_new_states)
-    new_perps_tensor = tf.convert_to_tensor(batch_of_new_perps)
-    new_preds_tensor = tf.expand_dims(tf.convert_to_tensor(batch_of_new_preds), -1)
-    combined_preds_tensor = tf.concat((beam_preds, new_preds_tensor), -1)
-    return new_states_tensor, combined_preds_tensor, new_perps_tensor
+    new_beam_width = tf.shape(pred_perps)[1]
+
+    flattened_pred_perps = tf.reshape(pred_perps, (batch_size, new_beam_width * vocab_size))
+    values, indices = tf.math.top_k(-flattened_pred_perps, k=beam_width, sorted=True)
+    
+    true_perps = -values
+
+    beam_indices = tf.math.floordiv(indices, vocab_size)
+    token_indices = indices - beam_indices * vocab_size
+    full_indices = tf.concat((tf.expand_dims(beam_indices, -1), tf.expand_dims(token_indices, -1)), -1)
+
+    return full_indices, true_perps
 
 
 def beam_search_decode_new(initial_states, single_bsd_step, start_token, end_token, beam_width=10, max_len=50,
                            batch_size=64):
     """
     Beam search decoder
+
     :param initial_states: shape (num_to_decode, arbitrary...)
-    :param single_bsd_step: a function that takes in the current set of predictions,
-    of shape (size_of_batch, beam_width, step), along with the current state, of shape
-    (size_of_batch, beam_width, arbitrary...), and returns predictions for the next token, of shape
-    (size_of_batch, beam_width, vocab_size), and the new state, of shape (size_of_batch, beam_width, arbitrary...).
-    The state is not modified by beam_search_decode, and is passed along to the next call of single_bsd_step.
-    It can be used for a recurrent cell's state, for example.
+    :param single_bsd_step: a function that takes in the current set of predictions, of shape (size_of_batch, beam_width, step), along with the current state, of shape (size_of_batch, beam_width, arbitrary...), and returns predictions for the next token, of shape (size_of_batch, beam_width, vocab_size), and the new state, of shape (size_of_batch, beam_width, arbitrary...). The state is not modified by beam_search_decode, and is passed along to the next call of single_bsd_step. It can be used for a recurrent cell's state, for example.
     :param start_token: the tokenizer's start token
     :param end_token: the tokenizer's end token
     :param beam_width: the number of beams to keep at each step
@@ -111,9 +69,9 @@ def beam_search_decode_new(initial_states, single_bsd_step, start_token, end_tok
         tf.cast(tf.shape(initial_states)[0], tf.float32) / tf.cast(batch_size, tf.float32)
     ), tf.int32)
 
-    all_beam_preds = tf.TensorArray(tf.int32, size=0, dynamic_size=True)
+    all_beam_preds = []
 
-    for batch_num in tf.range(0, limit=num_batches, delta=1):
+    for batch_num in tqdm.trange(num_batches):
 
         size_of_batch = tf.minimum(batch_size, tf.shape(initial_states)[0] - batch_num * batch_size)
         initial_states_batch = initial_states[batch_num * batch_size: batch_num * batch_size + size_of_batch]
@@ -125,8 +83,8 @@ def beam_search_decode_new(initial_states, single_bsd_step, start_token, end_tok
         beam_perps = tf.repeat(tf.expand_dims(tf.repeat(tf.expand_dims(0.0, 0), beam_width, axis=0), 0),
                                size_of_batch, axis=0)
 
-        allow_duplication = False
-        for step in tf.range(0, limit=max_len, delta=1):
+        first_iteration = True
+        for _ in tf.range(0, limit=max_len, delta=1):
 
             all_end_tokens = tf.equal(beam_preds, end_token)
             already_finished_beams = tf.reduce_any(all_end_tokens, axis=-1)
@@ -140,17 +98,18 @@ def beam_search_decode_new(initial_states, single_bsd_step, start_token, end_tok
             finished_beams_broadcast = tf.repeat(tf.expand_dims(already_finished_beams, -1), vocab_size, axis=-1)
             conditional_pred_perps = tf.where(finished_beams_broadcast, x=expanded_old_perps,
                                               y=expanded_old_perps - tf.math.log(pred_probs))
-            top_k_pred_indices, top_k_pred_perps = top_k_preds(conditional_pred_perps, allow_duplication)
-            allow_duplication = True
+            top_k_pred_indices, beam_perps = top_k_preds(conditional_pred_perps, first_iteration)
+            first_iteration = False
 
-            beam_states, beam_preds, beam_perps = update_beams(beam_preds, top_k_pred_indices, conditional_pred_perps,
-                                                               new_beam_states)
+            beam_nums = top_k_pred_indices[:, :, 0]
+            beam_states = tf.gather(new_beam_states, beam_nums, batch_dims=1)
+            new_token_nums = tf.expand_dims(top_k_pred_indices[:, :, 1], -1)
+            beam_preds = tf.concat((beam_preds, new_token_nums), -1)
 
         best_beam_preds = beam_preds[:, 0, :]
-        all_beam_preds = all_beam_preds.write(batch_num, best_beam_preds)
+        all_beam_preds.extend(best_beam_preds.numpy())
 
-    all_beam_preds_final = all_beam_preds.concat()
-    return all_beam_preds_final
+    return all_beam_preds
 
 
 def beam_search_decode(initial_state, single_bsd_step, start_token, end_token, beam_width=10, max_len=50):
