@@ -5,8 +5,19 @@ import json
 import tqdm
 from tokenizer import Tokenizer
 import transformer
-from tf_utils import dataset_to_batched_tensors, beam_search_decode, beam_search_decode_new
+from tf_utils import dataset_to_batched_tensors, beam_search_decode_new
 import text_data_utils as tdu
+
+
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+            logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+            print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+    except RuntimeError as e:
+        print(e)
 
 
 def recon_loss_bow(true, pred_prob, vocab_size):
@@ -212,6 +223,58 @@ class RecurrentDecoder(tf.keras.Model):
         return recon_loss_full(true, pred)
 
 
+class MultiHeadDecoder(tf.Module):
+    def __init__(self, latent_dim, vocab_size, emb_dim, teacher_dropout_rate, start_token, end_token,
+                 name='multi_head_decoder', **kwargs):
+        super(MultiHeadDecoder, self).__init__(name=name)
+        self.vocab_size = vocab_size
+        self.start_token = start_token
+        self.end_token = end_token
+        self.teacher_dropout = Dropout(teacher_dropout_rate)
+        self.embedding = tf.keras.layers.Embedding(vocab_size, emb_dim)
+        self.latent_to_heads = tf.keras.Sequential([
+            tf.keras.layers.Dense(latent_dim * 2),
+            tf.keras.layers.LeakyReLU()
+        ])
+        self.gru = tf.keras.layers.GRU(latent_dim * 2, return_sequences=True)
+        self.final_layer_prior = tf.keras.layers.Dense(self.vocab_size)
+        self.final_layer_posterior = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(self.vocab_size))
+
+    def teacher_forcing_decode(self, projected, true_outputs, training=False):
+        teacher_slice = true_outputs[:, :-1]
+        teacher_mask = tf.logical_not(tf.equal(teacher_slice, 0))
+        teacher_dropped = self.teacher_dropout(teacher_slice, training=training)
+        teacher_embedded = self.embedding(teacher_dropped)
+        gru_out = self.gru(teacher_embedded, initial_state=projected, training=training, mask=teacher_mask)
+        predicts = self.final_layer_posterior(gru_out)
+        return predicts
+
+    def _single_bsd_step(self, preds_so_far, states):
+        predicted_embedded = self.embedding(preds_so_far[:, -1])
+        out, new_states = self.gru.cell(predicted_embedded, tf.expand_dims(states, 0))
+        final = tf.nn.softmax(self.final_layer_posterior.layer(out), axis=-1)
+        return final, new_states[0]
+
+    def __call__(self, latent_samples, true_outputs=None, training=False, beam_width=1, **kwargs):
+        projected = self.latent_to_heads(latent_samples)
+        if true_outputs is not None:
+            priors = tf.expand_dims(self.final_layer_prior(projected), 1)
+            posteriors = self.teacher_forcing_decode(projected, true_outputs, training=training)
+            combined = tf.concat((priors, posteriors), 1)
+            return combined
+        else:
+            return beam_search_decode_new(projected, self._single_bsd_step, self.start_token, self.end_token,
+                                          beam_width=beam_width)
+
+    def recon_loss(self, true, pred):
+        priors = pred[:, 0, :]
+        posteriors = pred[:, 1:, :]
+        prior_loss = recon_loss_bow(true, priors, self.vocab_size)
+        posterior_loss = recon_loss_full(true, posteriors)
+        final_loss = 0.5 * prior_loss + 0.5 * posterior_loss
+        return final_loss
+
+
 class TransformerDecoder(tf.keras.Model):
     def __init__(self, latent_dim, vocab_size, emb_dim, teacher_dropout_rate, start_token, end_token,
                  reconstructed_dim=0, name='decoder', **kwargs):
@@ -285,6 +348,7 @@ encoders = {
 decoders = {
     'mlp_bow': MlpBowDecoder,
     'recurrent': RecurrentDecoder,
+    'multi_head': MultiHeadDecoder,
     'transformer': TransformerDecoder
 }
 
