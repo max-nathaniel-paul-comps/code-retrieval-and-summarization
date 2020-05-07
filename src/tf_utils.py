@@ -49,6 +49,7 @@ def top_k_preds(pred_perps, first_iteration):
     return full_indices, true_perps
 
 
+@tf.function
 def beam_search_decode_new(initial_states, single_bsd_step, start_token, end_token, beam_width=10, max_len=50):
     """
     Beam search decoder
@@ -64,41 +65,52 @@ def beam_search_decode_new(initial_states, single_bsd_step, start_token, end_tok
 
     size_of_batch = tf.shape(initial_states)[0]
 
-    beam_states = tf.repeat(tf.expand_dims(initial_states, 1), beam_width, axis=1)
-    beam_preds = tf.repeat(tf.expand_dims(tf.repeat(
+    beam_states = tf.TensorArray(tf.float32, size=0, dynamic_size=True, clear_after_read=True, infer_shape=True)
+    beam_states = beam_states.write(0, tf.repeat(tf.expand_dims(initial_states, 1), beam_width, axis=1))
+
+    beam_preds = tf.TensorArray(tf.int32, size=0, dynamic_size=True, clear_after_read=True, infer_shape=False)
+    beam_preds = beam_preds.write(0, tf.repeat(tf.expand_dims(tf.repeat(
         tf.expand_dims(tf.expand_dims(start_token, 0), 0), beam_width, axis=0
-    ), 0), size_of_batch, axis=0)
-    beam_perps = tf.repeat(tf.expand_dims(tf.repeat(tf.expand_dims(0.0, 0), beam_width, axis=0), 0),
-                           size_of_batch, axis=0)
+    ), 0), size_of_batch, axis=0))
+
+    beam_perps = tf.TensorArray(tf.float32, size=0, dynamic_size=True, clear_after_read=True, infer_shape=True)
+    beam_perps = beam_perps.write(0, tf.repeat(tf.expand_dims(tf.repeat(tf.expand_dims(0.0, 0), beam_width, axis=0), 0),
+                                               size_of_batch, axis=0))
 
     first_iteration = True
     for step in tf.range(0, limit=max_len, delta=1):
 
-        all_end_tokens = tf.equal(beam_preds, end_token)
+        cur_beam_states = beam_states.read(0)
+        cur_beam_preds = beam_preds.read(0)
+        cur_beam_perps = beam_perps.read(0)
+
+        all_end_tokens = tf.equal(cur_beam_preds, end_token)
         already_finished_beams = tf.reduce_any(all_end_tokens, axis=-1)
         if tf.reduce_all(already_finished_beams):
             break
 
-        flat_beam_preds = tf.reshape(beam_preds, (size_of_batch * beam_width, -1))
-        flat_beam_states = tf.reshape(beam_states, (size_of_batch * beam_width, -1))
+        flat_beam_preds = tf.reshape(cur_beam_preds, (size_of_batch * beam_width, -1))
+        flat_beam_states = tf.reshape(cur_beam_states, (size_of_batch * beam_width, -1))
         flat_pred_probs, flat_new_beam_states = single_bsd_step(flat_beam_preds, flat_beam_states)
         pred_probs = tf.reshape(flat_pred_probs, (size_of_batch, beam_width, -1))
         new_beam_states = tf.reshape(flat_new_beam_states, (size_of_batch, beam_width, -1))
 
         vocab_size = tf.shape(pred_probs)[-1]
-        expanded_old_perps = tf.repeat(tf.expand_dims(beam_perps, -1), vocab_size, axis=-1)
-        finished_beams_broadcast = tf.repeat(tf.expand_dims(already_finished_beams, -1), vocab_size, axis=-1)
+        expanded_old_perps = tf.repeat(tf.expand_dims(cur_beam_perps, -1), vocab_size, axis=-1)
+        finished_beams_broadcast = tf.repeat(tf.expand_dims(already_finished_beams, 2), vocab_size, axis=2)
         conditional_pred_perps = tf.where(finished_beams_broadcast, x=expanded_old_perps,
                                           y=expanded_old_perps - tf.math.log(pred_probs))
-        top_k_pred_indices, beam_perps = top_k_preds(conditional_pred_perps, first_iteration)
+        top_k_pred_indices, beam_perps_new = top_k_preds(conditional_pred_perps, first_iteration)
+        beam_perps = beam_perps.write(0, beam_perps_new)
         first_iteration = False
 
         beam_nums = top_k_pred_indices[:, :, 0]
-        beam_states = tf.gather(new_beam_states, beam_nums, batch_dims=1)
+        beam_states = beam_states.write(0, tf.gather(new_beam_states, beam_nums, batch_dims=1))
         new_token_nums = tf.expand_dims(top_k_pred_indices[:, :, 1], -1)
-        beam_preds = tf.concat((beam_preds, new_token_nums), -1)
+        new_beam_preds = tf.concat((cur_beam_preds, new_token_nums), -1)
+        beam_preds = beam_preds.write(0, new_beam_preds)
 
-    best_beam_preds = beam_preds[:, 0, :]
+    best_beam_preds = beam_preds.read(0)[:, 0, :]
     return best_beam_preds
 
 

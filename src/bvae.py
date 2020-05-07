@@ -68,11 +68,14 @@ def mpreg_loss(dists_a, dists_b):
     return kld_a, kld_b
 
 
-def create_latent_dists(logits, latent_dim):
+def create_latent_dists(logits, latent_dim, return_mean=False):
     means = logits[:, :latent_dim]
-    stddevs = tf.math.abs(logits[:, latent_dim:])
-    dists = tfp.distributions.Normal(means, stddevs)
-    return dists
+    if return_mean:
+        return means
+    else:
+        stddevs = tf.math.abs(logits[:, latent_dim:])
+        dists = tfp.distributions.Normal(means, stddevs)
+        return dists
 
 
 class Dropout(tf.keras.layers.Layer):
@@ -116,9 +119,9 @@ class MlpBowEncoder(tf.keras.models.Sequential):
         )
         self.latent_dim = latent_dim
 
-    def call(self, x, training=None, **kwargs):
+    def call(self, x, training=None, return_mean=False, **kwargs):
         raw_dists = super(MlpBowEncoder, self).call(x, training=training)
-        dists = create_latent_dists(raw_dists, self.latent_dim)
+        dists = create_latent_dists(raw_dists, self.latent_dim, return_mean=return_mean)
         return dists
 
 
@@ -552,13 +555,27 @@ class BimodalVariationalAutoEncoder(tf.Module):
                     print("Decreasing learning rate by 80 percent")
                     self.optimizer.learning_rate.assign(self.optimizer.learning_rate * 0.2)
 
+    @tf.function(
+        input_signature=[tf.TensorSpec((None, None), tf.int32)]
+    )
+    def summaries_to_latent_core(self, summaries):
+        latent = self.language_encoder(summaries, training=False, return_mean=True)
+        return latent
+
     def summaries_to_latent(self, summaries, preprocessed=False):
         if not preprocessed:
             summaries = list(map(self.language_preprocessor, summaries))
         tokenized = list(map(self.language_tokenizer.tokenize_text, summaries))
         padded = tf.keras.preprocessing.sequence.pad_sequences(tokenized, maxlen=self.l_dim, padding='post', value=0,
                                                                truncating='post')
-        latent = self.language_encoder(padded, training=False)
+        latent = self.summaries_to_latent_core(padded)
+        return latent
+
+    @tf.function(
+        input_signature=[tf.TensorSpec((None, None), tf.int32)]
+    )
+    def codes_to_latent_core(self, codes):
+        latent = self.source_code_encoder(codes, training=False, return_mean=True)
         return latent
 
     def codes_to_latent(self, codes, preprocessed=False):
@@ -567,19 +584,33 @@ class BimodalVariationalAutoEncoder(tf.Module):
         tokenized = list(map(self.code_tokenizer.tokenize_text, codes))
         padded = tf.keras.preprocessing.sequence.pad_sequences(tokenized, maxlen=self.c_dim, padding='post', value=0,
                                                                truncating='post')
-        latent = self.source_code_encoder(padded, training=False)
+        latent = self.codes_to_latent_core(padded)
         return latent
 
+    @tf.function(
+        input_signature=[tf.TensorSpec((None, 128), tf.float32),
+                         tf.TensorSpec((), tf.int32)]
+    )
+    def latent_to_summaries_core(self, latent, beam_width):
+        summaries = self.language_decoder(latent, training=False, beam_width=beam_width)
+        return summaries
+
     def latent_to_summaries(self, latent, beam_width=1):
-        mean = latent.mean()
-        tokenized = self.language_decoder(mean, training=False, beam_width=beam_width)
+        tokenized = self.latent_to_summaries_core(latent, beam_width)
         summaries = list(map(self.language_tokenizer.de_tokenize_text, tokenized))
         summaries = list(map(tdu.de_eof_text, summaries))
         return summaries
 
+    @tf.function(
+        input_signature=[tf.TensorSpec((None, 128), tf.float32),
+                         tf.TensorSpec((), tf.int32)]
+    )
+    def latent_to_codes_core(self, latent, beam_width):
+        codes = self.source_code_decoder(latent, training=False, beam_width=beam_width)
+        return codes
+
     def latent_to_codes(self, latent, beam_width=1):
-        mean = latent.mean()
-        tokenized = self.source_code_decoder(mean, training=False, beam_width=beam_width)
+        tokenized = self.latent_to_codes_core(latent, beam_width)
         codes = list(map(self.code_tokenizer.de_tokenize_text, tokenized))
         codes = list(map(tdu.de_eof_text, codes))
         return codes
