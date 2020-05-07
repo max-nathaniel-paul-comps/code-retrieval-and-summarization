@@ -55,13 +55,17 @@ def inverseDocFrequency(term, docs):
             denom += 1
     return 1.0 + math.log(float(N/denom))
 
-def inverseDocFrequency_pt(term, docs):
+def inverseDocFrequency_pt(term, docs, idf_scheme=0):
     N = len(docs)
-    denom = 1
+    occurrences = 1
     for d in docs:
         if countInDoc(term, d) > 0:
-            denom += 1
-    return 1.0 + math.log(float(N/denom))
+            occurrences += 1
+
+    if idf_scheme == 0:
+        return 1.0 + math.log(float(N/occurrences))
+    elif idf_scheme == 1:
+        return math.log((N-occurrences)/occurrences)
 
 def tfidf(term, doc, docs, scheme):
     return termFrequency(term, doc, scheme, True) * inverseDocFrequency(term, docs)
