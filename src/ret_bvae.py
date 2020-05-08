@@ -8,10 +8,10 @@ class RetBVAE(object):
     def __init__(self, model, code_snippets):
         self.model = model
         self.raw_codes = code_snippets
-        self.codes = model.codes_to_latent(self.raw_codes).mean()
+        self.codes = model.codes_to_latent(self.raw_codes)
 
     def get_similarities(self, query):
-        query_encoded = self.model.summaries_to_latent([query]).mean()
+        query_encoded = self.model.summaries_to_latent([query])
         similarities = tf.losses.cosine_similarity(query_encoded, self.codes, axis=-1) + 1
         return similarities
 

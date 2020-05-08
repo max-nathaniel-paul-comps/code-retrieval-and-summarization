@@ -40,12 +40,25 @@ def recon_loss_full(true, pred):
 
 
 def kld(dists_a, dists_b):
-    return tf.reduce_mean(
+
+    dim_a = dists_a.shape[1] // 2
+    means_a = dists_a[:, :dim_a]
+    stddevs_a = tf.math.abs(dists_a[:, dim_a:])
+    tf_dists_a = tfp.distributions.Normal(means_a, stddevs_a)
+
+    dim_b = dists_b.shape[1] // 2
+    means_b = dists_b[:, :dim_b]
+    stddevs_b = tf.math.abs(dists_b[:, dim_b:])
+    tf_dists_b = tfp.distributions.Normal(means_b, stddevs_b)
+
+    result = tf.reduce_mean(
         tfp.distributions.kl_divergence(
-            dists_a,
-            dists_b
+            tf_dists_a,
+            tf_dists_b
         )
     )
+
+    return result
 
 
 def preg_loss(dists_a, dists_b):
@@ -55,9 +68,7 @@ def preg_loss(dists_a, dists_b):
 
 
 def dists_means(dists_a, dists_b):
-    mean_mean = (dists_a.mean() + dists_b.mean()) / 2
-    mean_stddev = (dists_a.stddev() + dists_b.stddev()) / 2
-    mean_dists = tfp.distributions.Normal(mean_mean, mean_stddev)
+    mean_dists = (dists_a + dists_b) / 2
     return mean_dists
 
 
@@ -68,14 +79,13 @@ def mpreg_loss(dists_a, dists_b):
     return kld_a, kld_b
 
 
-def create_latent_dists(logits, latent_dim, return_mean=False):
-    means = logits[:, :latent_dim]
-    if return_mean:
-        return means
-    else:
-        stddevs = tf.math.abs(logits[:, latent_dim:])
-        dists = tfp.distributions.Normal(means, stddevs)
-        return dists
+def sample(dists):
+    dim = dists.shape[1] // 2
+    means = dists[:, :dim]
+    stddevs = tf.math.abs(dists[:, dim:])
+    tf_dists = tfp.distributions.Normal(means, stddevs)
+    samples = tf_dists.sample()
+    return samples
 
 
 class Dropout(tf.keras.layers.Layer):
@@ -119,11 +129,6 @@ class MlpBowEncoder(tf.keras.models.Sequential):
         )
         self.latent_dim = latent_dim
 
-    def call(self, x, training=None, return_mean=False, **kwargs):
-        raw_dists = super(MlpBowEncoder, self).call(x, training=training)
-        dists = create_latent_dists(raw_dists, self.latent_dim, return_mean=return_mean)
-        return dists
-
 
 class RecurrentEncoder(tf.keras.Model):
     def __init__(self, latent_dim, vocab_size, emb_dim, input_dropout_rate=0.0, name='gru_variational_encoder',
@@ -141,8 +146,7 @@ class RecurrentEncoder(tf.keras.Model):
         embedded = self.embedding(dropped)
         _, final_gru_state = self.gru(embedded, mask=mask)
         projected = self.projection(final_gru_state)
-        dists = create_latent_dists(projected, self.latent_dim)
-        return dists
+        return projected
 
 
 class TransformerEncoder(tf.keras.Model):
@@ -161,8 +165,7 @@ class TransformerEncoder(tf.keras.Model):
         mask = transformer.create_padding_mask(inputs)
         transformed = self.transformer_encoder(inputs, training, mask)
         projected = self.down_projection(transformed)
-        dists = create_latent_dists(projected, self.latent_dim)
-        return dists
+        return projected
 
 
 class MlpBowDecoder(tf.keras.models.Sequential):
@@ -454,8 +457,8 @@ class BimodalVariationalAutoEncoder(tf.Module):
     def loss(self, summaries, codes, al=0.35, bl=0.15, ac=0.35, bc=0.15):
         enc_language_dists = self.language_encoder(summaries, training=True)
         enc_source_code_dists = self.source_code_encoder(codes, training=True)
-        enc_language = enc_language_dists.sample()
-        enc_source_code = enc_source_code_dists.sample()
+        enc_language = sample(enc_language_dists)
+        enc_source_code = sample(enc_source_code_dists)
         dec_language = self.language_decoder(enc_language, training=True,
                                              true_outputs=summaries)
         dec_source_code = self.source_code_decoder(enc_source_code, training=True,
@@ -559,8 +562,9 @@ class BimodalVariationalAutoEncoder(tf.Module):
         input_signature=[tf.TensorSpec((None, None), tf.int32)]
     )
     def summaries_to_latent_core(self, summaries):
-        latent = self.language_encoder(summaries, training=False, return_mean=True)
-        return latent
+        latent = self.language_encoder(summaries, training=False)
+        latent_means = latent[:, :self.latent_dim]
+        return latent_means
 
     def summaries_to_latent(self, summaries, preprocessed=False):
         if not preprocessed:
@@ -575,8 +579,9 @@ class BimodalVariationalAutoEncoder(tf.Module):
         input_signature=[tf.TensorSpec((None, None), tf.int32)]
     )
     def codes_to_latent_core(self, codes):
-        latent = self.source_code_encoder(codes, training=False, return_mean=True)
-        return latent
+        latent = self.source_code_encoder(codes, training=False)
+        latent_means = latent[:, :self.latent_dim]
+        return latent_means
 
     def codes_to_latent(self, codes, preprocessed=False):
         if not preprocessed:
