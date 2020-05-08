@@ -68,7 +68,12 @@ def preg_loss(dists_a, dists_b):
 
 
 def dists_means(dists_a, dists_b):
-    mean_dists = (dists_a + dists_b) / 2
+    dim = dists_a.shape[1] // 2
+    dists_a_absstd = tf.math.abs(dists_a[:, dim:])
+    dists_b_absstd = tf.math.abs(dists_b[:, dim:])
+    dists_a_abs = tf.concat((dists_a[:, :dim], dists_a_absstd), axis=-1)
+    dists_b_abs = tf.concat((dists_b[:, :dim], dists_b_absstd), axis=-1)
+    mean_dists = (dists_a_abs + dists_b_abs) / 2
     return mean_dists
 
 
