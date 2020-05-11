@@ -1,7 +1,7 @@
 import sys
-# sys.path.append("..\\src")
 from tkinter import *
-# from bvae import *
+sys.path.append("../src")
+from prod_bvae import ProductionBVAE
 
 
 class GUI:
@@ -35,6 +35,8 @@ class GUI:
 
         self.output = Text(master)
         self.output.pack()
+        print("The Summarization BVAE is initializing, please wait...")
+        self.summarization_bvae = ProductionBVAE("../models/summ_sw_2_prod")
 
     def greet(self):
         print("Greetings!")
@@ -43,7 +45,8 @@ class GUI:
         self.output.delete(1.0, END)
         # self.output.insert(END, "Error: Unable to produce a summary")
         code = self.input.get(1.0, END)
-        self.output.insert(END, "The code does " + code)
+        summary = self.summarization_bvae.summarize([code], beam_width=1)[0]
+        self.output.insert(END, summary)
 
     def baseline_summarize(self):
         self.output.delete(1.0, END)
@@ -56,6 +59,7 @@ class GUI:
     def baseline_retrieve(self):
         self.output.delete(1.0, END)
         self.output.insert(END, "Error: Unable to retrieve code with Baseline")
+
 
 root = Tk()
 gui = GUI(root)
