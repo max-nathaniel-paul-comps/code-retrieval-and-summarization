@@ -51,15 +51,19 @@ class GUI:
         self.output.pack()
         self.output.config(font=('Arial', 13))
 
-        print("The Summarization BVAE is initializing, please wait...")
-        self.summarization_bvae = ProductionBVAE("../models/summ_sw_2_prod")
+        self.models = {}
 
     def summarize(self):
         if not self.get_language():
             return
-        self.output.delete(1.0, END)
+
+        model = self.get_model("summ", self.language)
+        if model is None:
+            return
+
         code = self.input.get(1.0, END)
-        summary = self.summarization_bvae.summarize([code], beam_width=1)[0]
+        summary = model.summarize([code], beam_width=1)[0]
+        self.output.delete(1.0, END)
         self.output.insert(END, summary)
 
     def baseline_summarize(self):
@@ -72,18 +76,12 @@ class GUI:
         if not self.get_language():
             return
 
-        if self.language == "C#":
-            _, codes = tdu.load_iyer_file("../data/iyer_csharp/dev.txt")
-        elif self.language == "Python":
-            _, _, test = tdu.load_edinburgh_dataset("../data/edinburgh_python")
-            codes = [ex[1] for ex in test]
-        elif self.language == "Java":
-            dataset = tdu.load_json_dataset("../data/leclair_java/test.json")
-            codes = [ex[1] for ex in dataset]
+        model = self.get_model("ret", self.language)
+        if model is None:
+            return
 
-        ret_bvae = RetBVAE(self.summarization_bvae, codes)
-        ranked_options = ret_bvae.rank_options(self.input.get(1.0, END))
-        result = ret_bvae.raw_codes[ranked_options[0]]
+        ranked_options = model.rank_options(self.input.get(1.0, END))
+        result = model.raw_codes[ranked_options[0]]
 
         self.output.delete(1.0, END)
         self.output.insert(END, result)
@@ -102,6 +100,39 @@ class GUI:
             return False
         else:
             return True
+
+    def get_model(self, type, language):
+        if (type, language) in self.models:
+            model = self.models[(type, language)]
+        else:
+            self.output.delete(1.0, END)
+            self.output.insert(END, "Model loading...")
+            self.master.update_idletasks()
+            try:
+                # time.sleep(5)
+                model = ProductionBVAE("../models/%s_%s_prod" % (type, language))
+                if type == "ret":
+                    model = self.wrap(model, language)
+                self.models[(type, language)] = model
+            except FileNotFoundError:
+                self.output.delete(1.0, END)
+                self.output.insert(END, "Error: Model could not be loaded")
+                return None
+
+        return model
+
+    def wrap(self, model, language):
+        if language == "C#":
+            _, codes = tdu.load_iyer_file("../data/iyer_csharp/dev.txt")
+        elif language == "Python":
+            _, _, test = tdu.load_edinburgh_dataset("../data/edinburgh_python")
+            codes = [ex[1] for ex in test]
+        elif language == "Java":
+            dataset = tdu.load_json_dataset("../data/leclair_java/test.json")
+            codes = [ex[1] for ex in dataset]
+
+        wrapped_model = RetBVAE(model, codes)
+        return wrapped_model
 
 
 root = Tk()
