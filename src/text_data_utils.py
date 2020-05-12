@@ -35,10 +35,11 @@ def preprocess(x: str, remove_stars=False, remove_java_doc_vars=False, remove_ht
     if remove_stars:
         x = x.replace('/*', ' ').replace('*/', ' ').replace('*', ' ')
     if remove_start_and_end_quotes:
-        if x.startswith('\''):
-            x = x[len('\''):]
-        if x.endswith('\''):
-            x = x[:-len('\'')]
+        x = x.strip()
+        if x.startswith("'"):
+            x = x[len("'"):]
+        if x.endswith("'"):
+            x = x[:-len("'")]
         if x.startswith('"'):
             x = x[len('"'):]
         if x.endswith('"'):

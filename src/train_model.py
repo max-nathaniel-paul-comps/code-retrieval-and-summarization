@@ -26,9 +26,9 @@ if prog_lang == "csharp":
     all_val = list(set().union(iyer_val, our_val))
 elif prog_lang == "python":
     all_train = list(tdu.edinburgh_dataset_as_generator("../data/edinburgh_python/data_ps.descriptions.train.txt",
-                                                        "../data/edinburgh_python/data_ps.declbodies.train.txt"))
+                                                        "../data/edinburgh_python/data_ps.declbodies.train.txt")())
     all_val = list(tdu.edinburgh_dataset_as_generator("../data/edinburgh_python/data_ps.descriptions.valid.txt",
-                                                      "../data/edinburgh_python/data_ps.declbodies.valid.txt"))
+                                                      "../data/edinburgh_python/data_ps.declbodies.valid.txt")())
 elif prog_lang == "java":
     all_train = tdu.load_json_dataset("../data/leclair_java/train.json")
     all_val = tdu.load_json_dataset("../data/leclair_java/val.json")
