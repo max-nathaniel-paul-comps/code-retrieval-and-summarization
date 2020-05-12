@@ -10,13 +10,17 @@ import text_data_utils as tdu
 class GUI:
     def __init__(self, master):
         self.master = master
-        self.AVAILABLE_LANGUAGES = ['c#', 'Python', 'Java']
+        self.AVAILABLE_LANGUAGES = ['C#', 'Python', 'Java']
 
         # self.label = Label(master, text="Code Retrieval and Summarization")
         # self.label.pack()
 
-        self.language_box = ttk.Combobox(master, values=self.AVAILABLE_LANGUAGES)
-        self.language_box.pack()
+        self.language_frame = Frame(root)
+        self.language_frame.pack()
+        self.language_label = Label(self.language_frame, text="Select a language ")
+        self.language_label.pack(side=LEFT)
+        self.language_box = ttk.Combobox(self.language_frame, values=self.AVAILABLE_LANGUAGES)
+        self.language_box.pack(side=LEFT)
 
         self.input = Text(master)
         self.input.config(font=('Arial', 13))
@@ -54,7 +58,6 @@ class GUI:
         if not self.get_language():
             return
         self.output.delete(1.0, END)
-        # self.output.insert(END, "Error: Unable to produce a summary")
         code = self.input.get(1.0, END)
         summary = self.summarization_bvae.summarize([code], beam_width=1)[0]
         self.output.insert(END, summary)
