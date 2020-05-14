@@ -5,6 +5,10 @@ sys.path.append("../src")
 from prod_bvae import ProductionBVAE
 from ret_bvae import RetBVAE
 import text_data_utils as tdu
+sys.path.append("../baselines/IR")
+import ir
+sys.path.append("../baselines/RET-IR")
+import retir
 
 
 class GUI:
@@ -69,8 +73,21 @@ class GUI:
     def baseline_summarize(self):
         if not self.get_language():
             return
+
+        if self.language == "C#":
+            summaries, _ = tdu.load_iyer_file("../data/iyer_csharp/test.txt")
+        elif self.language == "Python":
+            _, _, test = tdu.load_edinburgh_dataset("../data/edinburgh_python")
+            summaries = [ex[0] for ex in test]
+        elif self.language == "Java":
+            dataset = tdu.load_json_dataset("../data/leclair_java/test.json")
+            summaries = [ex[0] for ex in dataset]
+
+        code = self.output.get(1.0, END)
+        result = ir.ir(code, summaries)
+
         self.output.delete(1.0, END)
-        self.output.insert(END, "Error: Unable to produce a summary with Baseline")
+        self.output.insert(END, result)
 
     def retrieve(self):
         if not self.get_language():
@@ -89,8 +106,21 @@ class GUI:
     def baseline_retrieve(self):
         if not self.get_language():
             return
+
+        if self.language == "C#":
+            _, codes = tdu.load_iyer_file("../data/iyer_csharp/test.txt")
+        elif self.language == "Python":
+            _, _, test = tdu.load_edinburgh_dataset("../data/edinburgh_python")
+            codes = [ex[1] for ex in test]
+        elif self.language == "Java":
+            dataset = tdu.load_json_dataset("../data/leclair_java/test.json")
+            codes = [ex[1] for ex in dataset]
+
+        summary = self.output.get(1.0, END)
+        result_index = retir.retir(summary, codes, 1)[0]
+
         self.output.delete(1.0, END)
-        self.output.insert(END, "Error: Unable to retrieve code with Baseline")
+        self.output.insert(END, codes[result_index])
 
     def get_language(self):
         self.language = self.language_box.get()
@@ -123,7 +153,7 @@ class GUI:
 
     def wrap(self, model, language):
         if language == "C#":
-            _, codes = tdu.load_iyer_file("../data/iyer_csharp/dev.txt")
+            _, codes = tdu.load_iyer_file("../data/iyer_csharp/test.txt")
         elif language == "Python":
             _, _, test = tdu.load_edinburgh_dataset("../data/edinburgh_python")
             codes = [ex[1] for ex in test]
