@@ -1,6 +1,7 @@
 import sys
 from tkinter import *
 from tkinter import ttk
+import random
 sys.path.append("../src")
 from prod_bvae import ProductionBVAE
 from ret_bvae import RetBVAE
@@ -159,7 +160,9 @@ class GUI:
             codes = [ex[1] for ex in test]
         elif language == "Java":
             dataset = tdu.load_json_dataset("../data/leclair_java/test.json")
-            codes = [ex[1] for ex in dataset]
+            random.seed(a=420)
+            subset = random.sample(dataset, 8000)
+            codes = [ex[1] for ex in subset]
 
         wrapped_model = RetBVAE(model, codes)
         return wrapped_model
