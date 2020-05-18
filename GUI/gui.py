@@ -37,13 +37,13 @@ class GUI:
         self.retrieval_button_frame = Frame(root)
         self.retrieval_button_frame.pack()
 
-        self.summarize_bt = Button(self.summary_button_frame, text="Generate Summary", command=self.summarize)
+        self.summarize_bt = Button(self.summary_button_frame, text="Generate Summary", command=self.bvae_summarize)
         self.summarize_bt.pack(side=LEFT)
         self.baseline_summarize_bt = Button(self.summary_button_frame, text="Generate Summary with Baseline Model",
                                             command=self.baseline_summarize)
         self.baseline_summarize_bt.pack(side=LEFT)
 
-        self.retrieve_bt = Button(self.retrieval_button_frame, text="Retrieve Code", command=self.retrieve)
+        self.retrieve_bt = Button(self.retrieval_button_frame, text="Retrieve Code", command=self.bvae_retrieve)
         self.retrieve_bt.pack(side=LEFT)
         self.baseline_retrieve_bt = Button(self.retrieval_button_frame, text="Retrieve Code with Baseline Model",
                                            command=self.baseline_retrieve)
@@ -58,70 +58,97 @@ class GUI:
 
         self.models = {}
 
-    def summarize(self):
+    def summarize(self, bvae_or_baseline):
         if not self.get_language():
-            return
-
-        model = self.get_model("summ", self.language)
-        if model is None:
             return
 
         code = self.input.get(1.0, END)
-        summary = model.summarize([code], beam_width=1)[0]
+
+        if self.language == "Python":
+            code = tdu.preprocess_user_generated_python(code)
+
+        if bvae_or_baseline == "bvae":
+            model = self.get_model("summ", self.language)
+            if model is None:
+                return
+            summary = model.summarize([code], beam_width=1)[0]
+
+        elif bvae_or_baseline == "baseline":
+            if self.language == "C#":
+                summaries, _ = tdu.load_iyer_file("../data/iyer_csharp/test.txt")
+            elif self.language == "Python":
+                _, _, test = tdu.load_edinburgh_dataset("../data/edinburgh_python")
+                summaries = [ex[0] for ex in test]
+            elif self.language == "Java":
+                dataset = tdu.load_json_dataset("../data/leclair_java/test.json")
+                dataset = random.sample(dataset, 8000)
+                summaries = [ex[0] for ex in dataset]
+            else:
+                raise Exception()
+            summary = ir.ir(code, summaries)
+
+        else:
+            raise Exception()
+
+        if self.language == "Python":
+            summary = tdu.postprocess_edinburgh_format(summary)
+
         self.output.delete(1.0, END)
         self.output.insert(END, summary)
 
+    def bvae_summarize(self):
+        self.summarize("bvae")
+
     def baseline_summarize(self):
+        self.summarize("baseline")
+
+    def retrieve(self, bvae_or_baseline):
         if not self.get_language():
             return
 
-        if self.language == "C#":
-            summaries, _ = tdu.load_iyer_file("../data/iyer_csharp/test.txt")
-        elif self.language == "Python":
-            _, _, test = tdu.load_edinburgh_dataset("../data/edinburgh_python")
-            summaries = [ex[0] for ex in test]
-        elif self.language == "Java":
-            dataset = tdu.load_json_dataset("../data/leclair_java/test.json")
-            summaries = [ex[0] for ex in dataset]
+        summary = self.input.get(1.0, END)
 
-        code = self.output.get(1.0, END)
-        result = ir.ir(code, summaries)
+        if self.language == "Python":
+            summary = tdu.preprocess_user_generated_python(summary)
+
+        if bvae_or_baseline == "bvae":
+            model = self.get_model("ret", self.language)
+            if model is None:
+                return
+            ranked_options = model.rank_options(summary)
+            code = model.raw_codes[ranked_options[0]]
+
+        elif bvae_or_baseline == "baseline":
+            if self.language == "C#":
+                summaries, codes = tdu.load_iyer_file("../data/iyer_csharp/test.txt")
+            elif self.language == "Python":
+                _, _, test = tdu.load_edinburgh_dataset("../data/edinburgh_python")
+                summaries = [ex[0] for ex in test]
+                codes = [ex[1] for ex in test]
+            elif self.language == "Java":
+                dataset = tdu.load_json_dataset("../data/leclair_java/test.json")
+                dataset = random.sample(dataset, 8000)
+                summaries = [ex[0] for ex in dataset]
+                codes = [ex[1] for ex in dataset]
+            else:
+                raise Exception()
+            result_index = retir.retir(summary, summaries, 1)[0]
+            code = codes[result_index]
+
+        else:
+            raise Exception()
+
+        if self.language == "Python":
+            code = tdu.postprocess_edinburgh_format(code)
 
         self.output.delete(1.0, END)
-        self.output.insert(END, result)
+        self.output.insert(END, code)
 
-    def retrieve(self):
-        if not self.get_language():
-            return
-
-        model = self.get_model("ret", self.language)
-        if model is None:
-            return
-
-        ranked_options = model.rank_options(self.input.get(1.0, END))
-        result = model.raw_codes[ranked_options[0]]
-
-        self.output.delete(1.0, END)
-        self.output.insert(END, result)
+    def bvae_retrieve(self):
+        self.retrieve("bvae")
 
     def baseline_retrieve(self):
-        if not self.get_language():
-            return
-
-        if self.language == "C#":
-            _, codes = tdu.load_iyer_file("../data/iyer_csharp/test.txt")
-        elif self.language == "Python":
-            _, _, test = tdu.load_edinburgh_dataset("../data/edinburgh_python")
-            codes = [ex[1] for ex in test]
-        elif self.language == "Java":
-            dataset = tdu.load_json_dataset("../data/leclair_java/test.json")
-            codes = [ex[1] for ex in dataset]
-
-        summary = self.output.get(1.0, END)
-        result_index = retir.retir(summary, codes, 1)[0]
-
-        self.output.delete(1.0, END)
-        self.output.insert(END, codes[result_index])
+        self.retrieve("baseline")
 
     def get_language(self):
         self.language = self.language_box.get()

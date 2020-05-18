@@ -23,7 +23,13 @@ def rephrase_question(x: str) -> str:
 
 
 def preprocess(x: str, remove_stars=False, remove_java_doc_vars=False, remove_html_tags=False, remove_comments=False,
-               remove_start_and_end_quotes=False, rephrase=False, lower=False) -> str:
+               remove_start_and_end_quotes=False, rephrase=False, lower=False, to_edinburgh_format=False) -> str:
+    if to_edinburgh_format:
+        if x.endswith('\n'):
+            x = x[:-len('\n')]
+        x = x.replace('\n', ' DCNL ')
+        x = x.replace('    ', ' DCSP ')
+        x = x.replace('\t', ' DCSP ')
     if remove_java_doc_vars:
         x = re.sub(r'(?<![{])(@[\s\S]*)', ' ', x)
     if remove_comments:
@@ -67,6 +73,16 @@ def preprocess_stackoverflow_summary(x: str) -> str:
 
 def preprocess_edinburgh_python_or_summary(x: str) -> str:
     return preprocess(x, remove_start_and_end_quotes=True)
+
+
+def preprocess_user_generated_python(x: str) -> str:
+    return preprocess(x, to_edinburgh_format=True)
+
+
+def postprocess_edinburgh_format(x: str) -> str:
+    x = x.replace(' DCNL ', '\n').replace(' DCNL', '\n').replace('DCML ', '\n')
+    x = x.replace(' DCSP ', '    ').replace(' DCSP', '    ').replace('DCSP ', '    ')
+    return x
 
 
 def tokenize_text(text: str) -> List[str]:
