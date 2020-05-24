@@ -115,8 +115,8 @@ def main():
     compare_ret_ir = args["compare_ret_ir"]
 
     if prog_lang == "csharp":
-        dataset = tdu.load_iyer_dataset("../data/iyer_csharp/dev.txt",
-                                        alternate_summaries_filename="../data/iyer_csharp/dev_alternate_summaries.txt")
+        dataset = tdu.load_iyer_dataset("../data/iyer_csharp/eval.txt",
+                                        alternate_summaries_filename="../data/iyer_csharp/eval_alternate_summaries.txt")
     elif prog_lang == "python":
         _, _, test = tdu.load_edinburgh_dataset("../data/edinburgh_python")
         dataset = [("I'M IN THE ALT", ex[1], [ex[0]]) for ex in test]

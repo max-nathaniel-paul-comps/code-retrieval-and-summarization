@@ -36,8 +36,8 @@ else:
     raise Exception()
 
 if prog_lang == "csharp":
-    dataset = tdu.load_iyer_dataset("../data/iyer_csharp/dev.txt",
-                                    alternate_summaries_filename="../data/iyer_csharp/dev_alternate_summaries.txt")
+    dataset = tdu.load_iyer_dataset("../data/iyer_csharp/eval.txt",
+                                    alternate_summaries_filename="../data/iyer_csharp/eval_alternate_summaries.txt")
     codes = [ex[1] for ex in dataset]
     true_summaries = [[ex[0]] + ex[2] for ex in dataset]
 elif prog_lang == "python":
