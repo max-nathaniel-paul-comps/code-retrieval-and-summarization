@@ -35,7 +35,6 @@ def retir(query, candidates, numToReturn):
     #print(realSims)
     #print("Most similar by index:")
     return topXInds(list(realSims), numToReturn)
-    
     #return retir_pt(qTokens, cTokens, numToReturn)
 
 def retir_pt(qTokens, cTokens, numToReturn):
@@ -84,7 +83,7 @@ def randSample(summaries, codes, num, doingAlts = False, altSums = None):
         return sumRet, codRet
         
 def testOnData():
-    summaries, codes = tdu.load_iyer_file("../../data/iyer_csharp/test.txt")
+    summaries, codes = tdu.load_iyer_file("../../data/iyer_csharp/eval.txt")
     sSums, sCodes = randSample(summaries, codes, 20)
     for x in range(NUM_TESTS):
         testSumInd = random.choice(range(len(sSums)))
@@ -95,13 +94,28 @@ def testOnData():
         print("finished a test")
     print("complete")
 
-def setup(numToTake):
-    summaries, codes = tdu.load_iyer_file("../../data/iyer_csharp/dev.txt")
+#type 0 = csharp
+#type 1 = python
+#type 2 = java
+Psummaries = []
+Pcodes = []
+Jsummaries = []
+Jcodes = []
+
+def setup(numToTake, testType):
+    if testType==0:
+        summaries, codes = tdu.load_iyer_file("../../data/iyer_csharp/eval.txt")
+    elif testType==1:
+        summaries = Psummaries
+        codes = Pcodes
+    elif testType==2:
+        summaries = Jsummaries
+        codes = Jcodes
     sumSnips, codeSnips = randSample(summaries, codes, numToTake)
     return sumSnips, codeSnips
 
 def setupAlt(numToTake):
-    dataset = tdu.load_iyer_dataset("../../data/iyer_csharp/dev.txt", "../../data/iyer_csharp/dev_alternate_summaries.txt")
+    dataset = tdu.load_iyer_dataset("../../data/iyer_csharp/eval.txt", "../../data/iyer_csharp/eval_alternate_summaries.txt")
     summaries = [ex[0] for ex in dataset]
     codes = [ex[1] for ex in dataset]
     alt_summaries = [ex[2] for ex in dataset]
@@ -149,31 +163,33 @@ def shuffleQuery(q, chanceToShuffle):
     moveOver = False
     mover = ""
     for w in q.split(" "):
-        if moveOver:
-            moveOver = False
-            returner += mover + " "
         ran = random.random()
         if ran > chanceToShuffle:
             returner += w + " "
         else:
+            if moveOver:
+                moveOver = False
+                returner += mover + " "
             if ran < (chanceToShuffle/2) and DO_SHIFTING:
                 moveOver = True
                 mover = w
+            if ran < (chanceToShuffle/2):
+                returner += randCharString(len(w)) + " "
     #returner = "<s>" + returner + "</s>"
     return returner
 
 def runShuffleQuery(numSnips, numTimes):
     listRanks = []
-    chance = 0.2
+    chance = 0.935
     for x in range(numTimes):
-        sumSnips, codeSnips = setup(numSnips)
+        sumSnips, codeSnips = setup(numSnips, 2)
         corInd = random.choice(range(len(codeSnips)))
         corSum = sumSnips[corInd]
         dPrint("Original summary:\n" + corSum + "\nFor code:\n" + codeSnips[corInd])
         shuffled = shuffleQuery(corSum, chance)
         #shuffled = randCharString(len(corSum))
         dPrint("Edited query:\n" + shuffled)
-        returns = retir_pt(shuffled, sumSnips, numSnips)
+        returns = retir(shuffled, sumSnips, numSnips)
         dPrint("Correct return was at rank:\n" + str(returns.index(corInd)))
         listRanks.append(returns.index(corInd))
         
@@ -212,7 +228,14 @@ def randCharString(length):
 def dPrint(string):
     if DEBUG_PRINT:
         print(string)
+#MRR 0.2687
 if __name__=="__main__":
+    dataset = tdu.load_edinburgh_dataset("../../data/edinburgh_python")[2]
+    Psummaries = [entry[0] for entry in dataset]
+    Pcodes = [entry[1] for entry in dataset]
+    Jdataset = tdu.load_json_dataset("../../data/leclair_java/test.json")
+    Jsummaries = [entry[0] for entry in Jdataset]
+    Jcodes = [entry[1] for entry in Jdataset]
     print("Which test of RET-IR would you like to run?")
     print("(0) TestOnData() (DEPRECATED TESTING FUNC)")
     print("(1) Manual query testing")
