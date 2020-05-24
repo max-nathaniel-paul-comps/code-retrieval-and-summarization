@@ -203,3 +203,12 @@ a.tooltip-content.tooltip-bottom,.tooltip-content.tooltip-bottom {
 .grid .button {
     width: 100%;
 }
+
+.code-block {
+    display: block;
+    text-align: left;
+    margin: 4px;
+    border: 2px solid gray;
+    padding: 4px;
+    font-size: 9pt;
+}
