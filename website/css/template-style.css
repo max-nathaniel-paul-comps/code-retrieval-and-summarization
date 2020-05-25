@@ -574,6 +574,19 @@ aside.aside-left {
 .image-with-hover-overlay img {
   width: 100%;
 }
+.image-hover-outline img {
+  display: block;
+  overflow: hidden;
+  transition: all 0.20s linear 0s;
+  -o-transition: all 0.20s linear 0s;
+  -ms-transition: all 0.20s linear 0s;
+  -moz-transition: all 0.20s linear 0s;
+  -webkit-transition: all 0.20s linear 0s;
+}
+.image-hover-outline:hover img{
+  border: 2px solid red;
+  border-radius: 2px;
+}
 .image-hover-zoom:hover img {
   transform: scale(1.1);
 }
