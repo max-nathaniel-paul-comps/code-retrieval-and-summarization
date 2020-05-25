@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Eleganter - New Amazing HTML5 Template</title>
+    <title>Theory</title>
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/icons.css">
     <link rel="stylesheet" href="css/responsee.css">
@@ -47,38 +47,33 @@
         <header class="section background-dark">
           <div class="line">        
             <h1 class="text-white margin-top-bottom-40 text-size-60 text-line-height-1">Theory</h1>
-            <p class="margin-bottom-0 text-size-16">The BVAE (short for <em>Bimodal Variational AutoEncoder</em>) is a neural network comprised of two variational autoencoders with a shared latent space.<br>It's design is largely derived from <em>A Neural Framework for Retrie</em></p>
+            <p class="margin-bottom-0 text-size-16">The BVAE (short for <em>Bimodal Variational AutoEncoder</em>) is a neural network comprised of two variational autoencoders with a shared latent space.<br>It's design is largely derived from <em>A Neural Framework for Retrieval and Summarization of Source Code</em> by Qingying Chen and Minghui Zhou, which can be read <a href="https://dl.acm.org/doi/pdf/10.1145/3238147.3240471?download=true" style="text-decoration: underline;">here</a></p>
           </div>  
         </header>
         <div class="section background-white"> 
           <div class="line">  
-            <h2 class="text-size-40 margin-bottom-30">Investigationes demonstraverunt lectores</h2>
+            <h2 class="text-size-40 margin-bottom-30">An Examination of the Task at Hand</h2>
             <hr class="break-small background-primary margin-bottom-30">
             <p>
-            Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat. 
-            Ut wisi enim ad minim veniam, quis nostrud exerci tation ullamcorper suscipit lobortis nisl ut aliquip ex ea commodo consequat. 
-            Duis autem vel eum iriure dolor in hendrerit in vulputate velit esse molestie consequat, vel illum dolore eu feugiat nulla facilisis at vero eros 
-            et accumsan et iusto odio dignissim qui blandit praesent luptatum zzril delenit augue duis dolore te feugait nulla facilisi.
+            The BVAE attempts to perform well at two tasks, code retrieval and code summarization. At the outset, those might seem like two somewhat unrelated tasks; however, at further consideration we can see how intuitively these tasks are two sides of the same coin. Summarization attempts to take code and somehow transform it into a small segment of natural language, while Retrieval attempts to take a small segment of natural and rate/retrieve a code snippet based on that.<br> Thus, we reach the BVAE. To give a high-level overview, the BVAE attempts to learn to create a common encoding (the "latent representation") for source code and corresponding natural language strings, such that a code snippet should have a very similar latent representation to natural language which corresponds to it and vice versa. <br>
+            In order to properly learn this latent representation the BVAE needs an encoder and a decoder for source code and a similar pair for natural language. This results in two semi-distinct neural networks which use KL-divergence loss to keep their latent representations similar, as pictured below.
             </p> 
             <blockquote class="margin-top-bottom-20">
-              <h3 class="text-size-20 text-line-height-1 margin-bottom-15">Mirum est notare quam littera gothica</h3>
-              Mirum est notare quam littera gothica, quam nunc putamus parum claram, anteposuerit litterarum formas humanitatis per seacula quarta decima et quinta decima.
+              <h3 class="text-size-20 text-line-height-1 margin-bottom-15">A Note on Baselines</h3>
+              Though the details concerning our baselines are covered in the implementation section, here's a brief overview of the idea behind their designs:<br> RET-IR turns the query, as well as all natural language summaries in the database, into vectors using a special scoring method for each word in the string. Once all natural language segments are represented as vectors, they can be compared via Cosine Similarity, a common comparison metric for vectors, giving us our ordered ranking.<br>IR uses common alignment techniques, namely Levenshtein Distance (commonly known as Edit Distance), to compare the code segment to all summaries in the dataset, finding and retrieving the closest one to use as the summary. 
             </blockquote>
             
             <div class="line margin-top-30">
               <div class="margin">
                 <div class="s-12 m-6 l-6">
-                  <img src="img/img-01.jpg" alt="">
+                  <img src="img/bvaeDiagram.png" alt="">
                   <p class="margin-top-30">
-                  Nam liber tempor cum soluta nobis eleifend option congue nihil imperdiet doming id quod mazim placerat facer possim assum. Typi non habent claritatem insitam; 
-                  est usus legentis in iis qui facit eorum claritatem. Investigationes demonstraverunt lectores legere me lius quod ii legunt saepius. 
-                  Claritas est etiam processus dynamicus, qui sequitur mutationem consuetudium lectorum. Mirum est notare quam littera gothica, quam nunc 
-                  putamus parum claram, anteposuerit litterarum formas humanitatis per seacula quarta decima et quinta decima. Eodem modo typi, qui nunc 
-                  nobis videntur parum clari, fiant sollemnes in futurum.
+                  This diagram lays out the basics of the BVAE's structure. We see how the two encoder-decoder pairs each make up a semi-independent neural network, and how the loss (a needed metric in order to allow the net to learn) is calculated both through comparison of decoded summaries/code snippets to their original versions that were encoded (Reconstruction Loss) as well as comparison of the latent representations of encoded code/summary pairs (KL Divergence Loss). Through inclusion of both of these loss metrics, the model can sufficiently learn encoding methods that can correctly decode into either input format. Again, technical details on this functionality are given in the implementation section.
                   </p>
                 </div>
                 <div class="s-12 m-6 l-6">
-                  <img src="img/img-02.jpg" alt="">
+                  <img src="img/BVAERetrievalImg.png" alt="">
+                  <img src="img/BVAERetrievalImg.png" alt="">
                   <p class="margin-top-30">
                   Nam liber tempor cum soluta nobis eleifend option congue nihil imperdiet doming id quod mazim placerat facer possim assum. Typi non habent claritatem insitam; 
                   est usus legentis in iis qui facit eorum claritatem. Investigationes demonstraverunt lectores legere me lius quod ii legunt saepius. 
