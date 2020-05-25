@@ -66,24 +66,39 @@
             <div class="line margin-top-30">
               <div class="margin">
                 <div class="s-12 m-6 l-6">
-                  <img src="img/bvaeDiagram.png" alt="">
+                  <img src="img/bvaeDiagramPlain.png" alt="">
                   <p class="margin-top-30">
-                  This diagram lays out the basics of the BVAE's structure. We see how the two encoder-decoder pairs each make up a semi-independent neural network, and how the loss (a needed metric in order to allow the net to learn) is calculated both through comparison of decoded summaries/code snippets to their original versions that were encoded (Reconstruction Loss) as well as comparison of the latent representations of encoded code/summary pairs (KL Divergence Loss). Through inclusion of both of these loss metrics, the model can sufficiently learn encoding methods that can correctly decode into either input format. Again, technical details on this functionality are given in the implementation section.
+                  This diagram lays out the basics of the BVAE's structure. As discussed, two encoder-decoder pairs each make up their own neural network, the two only being tied together once we introduce KL Divergence Loss. For now, this basic structure shows both summaries and snippets being encoded to and decoded from a latent representation. Below, we show how specific tasks are performed.
                   </p>
                 </div>
                 <div class="s-12 m-6 l-6">
-                  <img src="img/BVAERetrievalImg.png" alt="">
-                  <img src="img/BVAESummarizationImg.png" alt="">
+                  <img src="img/bvaeDiagram.png" alt="">
+                  <!-- <img src="img/BVAESummarizationImg.png" class="bvaePics" alt=""> -->
                   <p class="margin-top-30">
-                  Nam liber tempor cum soluta nobis eleifend option congue nihil imperdiet doming id quod mazim placerat facer possim assum. Typi non habent claritatem insitam; 
-                  est usus legentis in iis qui facit eorum claritatem. Investigationes demonstraverunt lectores legere me lius quod ii legunt saepius. 
-                  Claritas est etiam processus dynamicus, qui sequitur mutationem consuetudium lectorum. Mirum est notare quam littera gothica, quam nunc 
-                  putamus parum claram, anteposuerit litterarum formas humanitatis per seacula quarta decima et quinta decima. Eodem modo typi, qui nunc 
-                  nobis videntur parum clari, fiant sollemnes in futurum.
+                  Now, all neural net models need loss in order to learn, and this particular model uses two kinds of loss. Loss is herein calculated both through comparison of decoded summaries/code snippets to their original versions that were encoded (Reconstruction Loss) as well as comparison of the latent representations of encoded code/summary pairs (KL Divergence Loss). Through inclusion of both of these loss metrics, the model can sufficiently learn encoding methods that can correctly decode into either input format. Again, technical details on this functionality are given in the implementation section.
                   </p>
                 </div>
               </div>
-            </div>      
+            </div>
+
+             <div class="line margin-top-30">
+              <div class="margin">
+                <div class="s-12 m-6 l-6">
+                  <img src="img/BVAERetrievalImg.png" alt="">
+                  <p class="margin-top-30">
+                  Retrieval is performed fairly simply once the model is set up: First, encode the entered query into its latent representation. Then compare that latent representation to the latent representations of all code snippets in your database, and find and return the code corresponding to the most similar one.
+                  </p>
+                </div>
+                <div class="s-12 m-6 l-6">
+                  <img src="img/BVAESummarizationImg.png" alt="">
+                  <!-- <img src="img/BVAESummarizationImg.png" class="bvaePics" alt=""> -->
+                  <p class="margin-top-30">
+                  Summarization is even more straightforward: Encode the entered code snippet to its latent representation, then decode that latent representation as natural language. On the implementation end this will become a good bit more complicated, but from an abstract view this task is relatively simple.
+                  </p>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div> 
       </article>
@@ -92,30 +107,30 @@
     <!-- FOOTER -->
     <footer>
       <!-- Contact Us -->
-      <div class="background-primary padding text-center">
+      <!-- <div class="background-primary padding text-center">
         <p class="h1">Contact Us: 0800 787 787</p>                                                                        
-      </div>
+      </div> -->
       
       <!-- Main Footer -->
       <section class="background-dark full-width">
         <!-- Map -->
         <div class="s-12 m-12 l-6 margin-m-bottom-2x">
-          <div class="s-12 grayscale center">  	  
-            <iframe src="https://www.google.com/maps/embed?pb=!1m14!1m12!1m3!1d1459734.5702753505!2d16.91089086619977!3d48.577103681657675!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!5e0!3m2!1ssk!2ssk!4v1457640551761" width="100%" height="450" frameborder="0" style="border:0"></iframe>
+          <div class="s-12 grayscale center">     
+            <img src="img/cmc.jpg" alt="">
           </div>
         </div>
         
         <!-- Collumn 2 -->
-        <div class="s-12 m-12 l-6 margin-m-bottom-2x">
+         <div class="s-12 m-12 l-6 margin-m-bottom-2x">
           <div class="padding-2x">
             <div class="line">              
               <div class="float-left">
                   <i class="icon-sli-location-pin text-primary icon3x"></i>
                 </div>
                 <div class="margin-left-70 margin-bottom-30">
-                  <h3 class="margin-bottom-0">Company Address</h3>
-                  <p>Responsive Street 7<br>
-                     London / United Kingdom / Europe
+                  <h3 class="margin-bottom-0">Carleton College</h3>
+                  <p>Northfield, MN<br>
+                     United States
                   </p>               
                 </div>
                 <div class="float-left">
@@ -123,11 +138,12 @@
                 </div>
                 <div class="margin-left-70 margin-bottom-30">
                   <h3 class="margin-bottom-0">E-mail</h3>
-                  <p>contact@sampledomain.com<br>
-                     office@sampledomain.com
+                  <p>bremerw@carleton.edu<br>
+                     macarthurn@carleton.edu<br>
+                     butterfieldp@carleton.edu
                   </p>              
                 </div>
-                <div class="float-left">
+                <!-- <div class="float-left">
                   <i class="icon-sli-phone text-primary icon3x"></i>
                 </div>
                 <div class="margin-left-70">
@@ -136,7 +152,7 @@
                      0450 5896 625 16<br>
                      0798 6546 465 15
                   </p>             
-                </div>
+                </div> -->
             </div>
           </div>
         </div>  

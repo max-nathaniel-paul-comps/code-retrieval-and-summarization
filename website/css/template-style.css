@@ -591,7 +591,6 @@ aside.aside-left {
   transform: scale(1.1);
 }
 
-
 /* Buttons */
 .button, a.button, a.button:link, a.button:visited {
   border-color: rgba(255, 255, 255, 0.4) rgba(255, 255, 255, 0) rgba(0, 0, 0, 0.3);
