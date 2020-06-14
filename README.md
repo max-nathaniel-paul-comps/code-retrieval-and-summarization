@@ -1,2 +1,2 @@
 # Code Retrieval and Summarization
-Our comps project
+This repository contains code for implementing, testing, analyzing, and applying diffent methods of code summatization and retrieval.
