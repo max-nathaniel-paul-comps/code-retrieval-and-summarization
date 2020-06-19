@@ -35,6 +35,7 @@ elif prog_lang == "java":
 else:
     raise Exception()
 
+print("Creating model...")
 if model_type == "bvae":
     model = bvae.BimodalVariationalAutoEncoder(model_path, train_set=all_train, val_set=all_val,
                                                num_train_epochs=num_epochs, sets_preprocessed=True)

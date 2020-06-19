@@ -320,17 +320,17 @@ class Transformer(tf.keras.Model):
                  sets_preprocessed=False):
         super(Transformer, self).__init__()
 
-        model_path = os.path.abspath(model_path) + "/"
-        with open(model_path + "transformer_description.json") as transformer_desc_json:
+        model_path = os.path.abspath(model_path)
+        with open(os.path.join(model_path, "transformer_description.json")) as transformer_desc_json:
             transformer_description = json.load(transformer_desc_json)
 
         self.output_tokenizer = Tokenizer(transformer_description['tar_tokenizer_type'],
-                                          model_path + transformer_description['tar_tokenizer_path'],
+                                          os.path.join(model_path, transformer_description['tar_tokenizer_path']),
                                           training_texts=([ex[0] for ex in train_set] if train_set is not None
                                                           else None),
                                           target_vocab_size=transformer_description['tar_target_vocab_size'])
         self.input_tokenizer = Tokenizer(transformer_description['inp_tokenizer_type'],
-                                         model_path + transformer_description['inp_tokenizer_path'],
+                                         os.path.join(model_path, transformer_description['inp_tokenizer_path']),
                                          training_texts=([ex[1] for ex in train_set] if train_set is not None
                                                          else None),
                                          target_vocab_size=transformer_description['inp_target_vocab_size'])
@@ -368,7 +368,7 @@ class Transformer(tf.keras.Model):
         self.train_loss = tf.keras.metrics.Mean(name='train_loss')
         self.train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='train_accuracy')
 
-        checkpoint_path = model_path + "train/"
+        checkpoint_path = os.path.join(model_path, "train")
 
         ckpt = tf.train.Checkpoint(transformer=self,
                                    optimizer=self.optimizer)
